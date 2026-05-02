@@ -99,6 +99,20 @@ SUMMARY_FILENAME_PREFIX = "AI"
 
 nest_asyncio.apply()
 
+# --- Compatibility Patch for nest_asyncio and Uvicorn ---
+# Some versions of uvicorn (used by Gradio) call asyncio.run(..., loop_factory=...)
+# nest_asyncio patches asyncio.run but doesn't always support loop_factory.
+_orig_run = asyncio.run
+def _patched_run(main, *, debug=None, loop_factory=None):
+    try:
+        if loop_factory is not None:
+            return _orig_run(main, debug=debug)
+        return _orig_run(main, debug=debug)
+    except TypeError:
+        # Fallback for versions that don't support debug either
+        return _orig_run(main)
+asyncio.run = _patched_run
+
 # --- Filesystem Setup ---
 UPLOAD_FOLDER = 'uploads'
 TRANSCRIPT_FOLDER = 'transcripts'

@@ -106,8 +106,9 @@ os.makedirs(TRANSCRIPT_FOLDER, exist_ok=True)
 # SECTION 3: AI AND HARDWARE INITIALIZATION
 # ------------------------------------------------------------------------------
 
-device = "cuda" if MODE == 'WHISPER' and torch.cuda.is_available() else "cpu"
-fp16_enabled = MODE == 'WHISPER' and (str(WHISPER_PRECISION).lower() == 'true' or (str(WHISPER_PRECISION).lower() == 'auto' and device == 'cuda'))
+# Initial hardware detection (proxy)
+# start.py sets MODE='WHISPER' only if it detects a GPU via nvidia-smi
+device = "cuda" if MODE == 'WHISPER' else "cpu"
 
 # Global State
 model = None
@@ -164,7 +165,7 @@ async def perform_shutdown(reason: str):
 
 async def initialize_models_background():
     """Loads Whisper (if in WHISPER mode) and initializes Gemini client."""
-    global model, gemini_client, GRADIO_AVAILABLE, MODE
+    global model, gemini_client, GRADIO_AVAILABLE, MODE, device
     try:
         # Acknowledge the kitchen is heating up
         kitchen_status = "🍳 *Kitchen is heating up...*" if MODE == 'WHISPER' else "🥪 *Preparing snacks...*"
@@ -175,6 +176,11 @@ async def initialize_models_background():
             try:
                 import torch
                 from faster_whisper import WhisperModel
+                # Final hardware check now that torch is here
+                if not torch.cuda.is_available():
+                    device = "cpu"
+                    log("INIT", "GPU detected by system but not accessible by Torch. Using CPU.")
+                
                 try:
                     import gradio_handler
                     GRADIO_AVAILABLE = True
@@ -201,6 +207,9 @@ async def initialize_models_background():
                     log("INIT", "ML dependencies installed successfully.")
                     import torch
                     from faster_whisper import WhisperModel
+                    # Final hardware check after install
+                    if not torch.cuda.is_available():
+                        device = "cpu"
                     try:
                         import gradio_handler
                         GRADIO_AVAILABLE = True

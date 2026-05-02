@@ -1,117 +1,95 @@
-# 🤖 TTB (Telegram Transcription Bot)
+# 🤵 TTB: Your Professional Transcription Waiter
 
-**TTB** is an advanced Telegram bot that utilizes **OpenAI Whisper** for high-precision audio/video transcription and **Google Gemini** for automatic summarization in Indonesian (default).
+[![Google Colab](https://img.shields.io/badge/Run%20on-Google%20Colab-orange?logo=googlecolab)](https://colab.research.google.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Specifically designed to run on **Google Colab** (Free GPU) using the "Vibe Coding" method, where this repository acts as the *source of truth* pulled by Colab at *runtime*.
+**TTB (Telegram Transcription Bot)** is not just a tool; it's a premium service for your audio and video files. Powered by **OpenAI Whisper** for world-class transcription and **Google Gemini** for intelligent summarization, TTB delivers results with the elegance and speed of a professional waiter.
 
-## ⚡ Limits & Compatibility
+---
 
-| Component | Type | Limit |
-| :--- | :--- | :--- |
-| **Whisper (Transcription)** | **Fully Local** (Colab GPU) | **Unlimited**. No duration or file count limits. Runs 100% offline once model is loaded. |
-| **Hugging Face** | Model Download | **Rate Limit Only**. Adding `HF_TOKEN` prevents temporary download blocks from HF servers. |
-| **Google Gemini** | Cloud API | **Free Tier Quota**. Subject to your Google API Key limits (~15 RPM, 1,500/day). |
+## ⚡ Lightning Fast "Restaurant" Service
 
-## ✨ Key Features
+Forget waiting for heavy AI models to load. TTB uses a **Microservice-style Startup** optimized for Google Colab:
+- **Immediate Host Greeting**: The bot is online and ready to take your "orders" in **under 10 seconds**.
+- **Background Kitchen Setup**: While your "Waiter" greets you, the AI "Kitchen" (Whisper & Torch) prepares in the background.
+- **Queue & Relax**: Send your files immediately; they’ll be queued and processed the moment the kitchen is ready.
 
--   **Accurate Transcription**: Uses **faster-whisper** (`large-v2` default for SEA languages) with optimized beam search.
--   **Smart Summarization**: Integrates Google Gemini 2.5 Flash to summarize transcripts into key points (Indonesian).
--   **Large File Support**: Handles audio/video files up to Telegram's limit, and supports **Multi-part ZIP archives** (e.g., `file.zip.001`) for very large files.
--   **GPU Acceleration**: Optimized for fast performance on GPU (CUDA), with FP16/INT8 dynamic loading.
--   **Clean Formatting**: Text output is formatted as **clean paragraphs** separated by double newlines, with timestamps removed for better readability.
--   **Context-Aware**: Uses VAD (Voice Activity Detection) and Repetition Penalties to reduce hallucinations.
+---
 
-## 🚀 How to Run (Google Colab)
+## ✨ Why Choose TTB?
 
-The easiest and recommended way is to use Google Colab.
+| Feature | The TTB Experience |
+| :--- | :--- |
+| **🚀 Instant Response** | Micro-startup logic ensures the bot is always ready when you are. |
+| **🔥 Unlimited Power** | Runs **OpenAI Whisper** (`large-v2`) locally on Colab's T4 GPU. No duration limits. |
+| **🌩️ Cloud Fallback** | No GPU? No problem. TTB seamlessly switches to **Gemini API** for CPU environments. |
+| **🧠 Smart Summary** | Get the gist instantly with **Gemini 2.5 Flash** summarizing into key points. |
+| **📂 Any Format** | Audio, video, multi-part ZIPs—TTB handles it all with professional grace. |
+| **🤵 Waiter Persona** | Real-time status updates: *Kitchen heating up... Cooking your file... Order ready!* |
 
-1.  **Setup Secrets**:
-    In Google Colab, open the **Secrets** tab (key icon 🔑 on the left sidebar) and add:
-    -   `TELEGRAM_BOT_TOKEN`: Bot token from BotFather.
-    -   `TELEGRAM_CHAT_ID`: Your Telegram chat ID (for security, the bot only responds to this ID).
-    -   `GEMINI_API_KEY`: API Key from Google AI Studio (Optional, for summarization features).
-    -   `GITHUB_TOKEN`: GitHub Personal Access Token (Optional, if this repo is Private).
-    -   `HF_TOKEN`: Hugging Face Token (Optional, prevents model download rate limits).
+---
 
-2.  **Enable GPU**:
-    Ensure the Runtime type is set to **T4 GPU** (Menu: *Runtime > Change runtime type*).
+## 🚀 One-Click Gourmet Experience (Google Colab)
 
-3.  **Run**:
-    Copy the code block below into a single cell in your Colab notebook and run it. This script will load your secrets and then execute the runner from the repository.
+1.  **Prepare your Secrets** 🔑:
+    In Colab's **Secrets** tab, add:
+    - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
+    - `GEMINI_API_KEY` (Optional for summaries)
+    - `HF_TOKEN`, `GITHUB_TOKEN` (Optional for private use/faster downloads)
+
+2.  **Turn on the Stove** 🔥:
+    Set Runtime to **T4 GPU** (*Runtime > Change runtime type*).
+
+3.  **Place your Order** 🛎️:
+    Copy and run this cell. Your professional waiter will be with you in seconds:
 
     ```python
-    # @title 🚀 Setup & Run TTB
+    # @title 🤵 Start TTB Restaurant
     import os
     from google.colab import userdata
 
-    # 1. Load Secrets
+    # 1. Greet the Waiter (Load Secrets)
     for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY', 'GITHUB_TOKEN', 'HF_TOKEN']:
         try:
             val = userdata.get(key)
             if val: os.environ[key] = str(val)
         except: pass
 
-    # 2. Run Remote Script
+    # 2. Open the Restaurant
     !curl -s https://raw.githubusercontent.com/arinadi/TTB/main/runner.py -o runner.py && python runner.py
     ```
 
-## 🧠 Smart Mode Selection
+---
 
-TTB automatically detects your environment and selects the best transcription method:
+## 🛠️ The Tech Behind the Service
 
--   **🔥 WHISPER Mode (GPU)**: Activated if a T4/NVIDIA GPU is detected. Highly accurate, runs locally.
--   **🌩️ GEMINI Mode (CPU)**: Default fallback for CPU-only environments (Local/Laptop/Termux). Uses Google Gemini API for transcription. 
-    -   *Limit: Max 10 mins per audio file in this mode.*
-    -   *Idle timers are extended (5x) to prevent frequent shutdowns on slow systems.*
+- **Faster-Whisper**: Optimized for speed and precision using CTranslate2.
+- **VAD (Voice Activity Detection)**: Intelligent silence filtering to reduce hallucinations.
+- **uv Installer**: Ultra-fast dependency management to get the bot online faster.
+- **Resilient Polling**: Advanced error handling for stable connections in Colab.
 
-## 💻 How to Run (Local)
+---
 
-1.  **Clone Repo**:
-    ```bash
-    git clone https://github.com/arinadi/TTB.git
-    cd TTB
-    ```
+## 📂 Restaurant Layout (File Structure)
 
-2.  **Install Dependencies**:
-    - For **GPU**: `pip install -r requirements.txt`
-    - For **CPU**: `pip install -r requirements_cpu.txt`
-    - Or run `bash setup_uv.sh` to auto-detect and install.
+- `main.py`: The **Head Waiter**. Manages the queue and orchestrates service.
+- `runner.py`: The **Maitre D'**. Handles environment setup and "Kitchen" preparation.
+- `start.py`: The **Manager**. Monitors hardware and ensures smooth operation.
+- `utils.py`: The **Sous-Chefs**. Formatters, loggers, and Gemini API wrappers.
+- `gradio_handler.py`: The **Web Buffet**. Optional UI for large file uploads.
 
-3.  **Setup Environment Variables**:
-    Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and `GEMINI_API_KEY`.
+---
 
-4.  **Run Bot**:
-    ```bash
-    python start.py
-    ```
+## 💻 Local Dining (Manual Run)
 
-## 📂 File Structure
+Prefer to host yourself?
+```bash
+git clone https://github.com/arinadi/TTB.git
+cd TTB
+bash setup_uv.sh  # Auto-detects hardware and installs everything
+python start.py
+```
 
--   `main.py`: Main entry point. Contains Telegram bot logic, queue system, and model initialization.
--   `config.py`: Centralized configuration and secrets management.
--   `start.py`: Bot manager that handles idle monitoring and auto-restart.
--   `runner.py`: Specialized script for Google Colab automation (cloning, deps, running).
--   `utils.py`: Helper functions for text formatting, logging, and Gemini API wrapper.
--   `gradio_handler.py`: Optional Gradio web interface for large file uploads.
--   `requirements.txt`: Optimized list for Colab (excludes pre-installed libs like `requests`, `httpx`, `tqdm`).
--   `requirements_local.txt`: Full list for local dev.
+---
 
-## 🛠 Advanced Configuration
-
-All settings are managed in `config.py` and can be overridden via Environment Variables:
-
--   **Model**: `WHISPER_MODEL` (default: `large-v2`).
--   **Precision**: `WHISPER_PRECISION` (`auto`, `float16`, `int8`).
--   **VAD**: `VAD_FILTER` (True/False) to reduce hallucinations.
--   **Decoding**: 
-    - `WHISPER_PATIENCE` (Default: 2.0)
-    - `REPETITION_PENALTY` (Default: 1.1)
--   **Idle Monitor**: `ENABLE_IDLE_MONITOR` (Colab saver).
-
-## 🔄 Network Resilience
-
-This bot has robust error handling for connection issues in Colab:
-
--   **Auto-Retry**: Transient network errors are auto-retried (max 2x) without shutdown.
--   **Extended Timeouts**: Optimized specifically for Colab's network environment.
--   **Connection Pool**: Pool size 8 for stable connections.
+*“Transcription is a dish best served fast.”* 🤵✨

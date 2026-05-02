@@ -164,7 +164,7 @@ async def perform_shutdown(reason: str):
 
 async def initialize_models_background():
     """Loads Whisper (if in WHISPER mode) and initializes Gemini client."""
-    global model, gemini_client, GRADIO_AVAILABLE
+    global model, gemini_client, GRADIO_AVAILABLE, MODE
     try:
         # Acknowledge the kitchen is heating up
         kitchen_status = "🍳 *Kitchen is heating up...*" if MODE == 'WHISPER' else "🥪 *Preparing snacks...*"
@@ -195,7 +195,6 @@ async def initialize_models_background():
                 if process.returncode != 0:
                     log("ERROR", f"Failed to install ML dependencies: {stderr.decode()}")
                     await send_telegram_notification(application, "❌ *Kitchen equipment failure.* Falling back to GEMINI (Cloud) mode.")
-                    global MODE
                     MODE = 'GEMINI'
                     os.environ['TRANSCRIPTION_MODE'] = 'GEMINI'
                 else:

@@ -140,36 +140,46 @@ def create_gradio_interface() -> Optional["gr.Blocks"]:
     
     with gr.Blocks(
         title="TTB - Transcription Bot",
-        theme=gr.themes.Soft(primary_hue="blue"),
+        theme=gr.themes.Soft(primary_hue="blue", spacing_size="sm", radius_size="md"),
         css="""
-        .gradio-container { max-width: 600px !important; margin: auto; }
-        .upload-box { border: 2px dashed #3b82f6 !important; border-radius: 12px !important; }
+        .gradio-container { max-width: 100% !important; padding: 10px !important; }
+        .upload-box { border: 2px dashed #3b82f6 !important; border-radius: 12px !important; min-height: 200px; }
+        footer { display: none !important; }
+        #status-area { font-family: monospace; font-size: 0.9em; }
+        @media (max-width: 600px) {
+            h1 { font-size: 1.5em !important; }
+            .gr-button { width: 100% !important; margin-bottom: 10px; }
+        }
         """
     ) as app:
         gr.Markdown(
             """
-            # 🎙️ TTB - Transcription Bot (Web)
+            # 🎙️ TTB Web Buffet
             
-            Upload large audio/video files (>20MB) through this interface.
-            Transcription results will be sent to Telegram.
+            Upload large audio/video files (>20MB) easily from your mobile or desktop. 
+            Results will be served directly to your Telegram.
             """
         )
         
-        with gr.Column():
+        with gr.Group():
             file_input = gr.File(
-                label="📁 Upload Audio/Video (multiple files supported)",
+                label="📁 Select or Drop Files",
                 file_types=["audio", "video", ".mp3", ".mp4", ".wav", ".m4a", ".webm", ".ogg", ".flac", ".mkv"],
                 type="filepath",
-                file_count="multiple"
+                file_count="multiple",
+                elem_classes=["upload-box"]
             )
             
             status_output = gr.Textbox(
-                label="Status",
+                label="Order Status",
+                placeholder="Waiting for your order...",
                 interactive=False,
-                lines=6
+                lines=4,
+                elem_id="status-area"
             )
             
-            upload_more_btn = gr.Button("🔄 Upload More", variant="secondary", size="lg", visible=False)
+            upload_more_btn = gr.Button("🔄 New Order", variant="primary", size="lg", visible=False)
+
         
         gr.Markdown(
             """

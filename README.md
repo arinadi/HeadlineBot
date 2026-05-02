@@ -11,8 +11,8 @@
 
 Forget waiting for heavy AI models to load. TTB uses a **Microservice-style Startup** optimized for Google Colab:
 - **Immediate Host Greeting**: The bot is online and ready to take your "orders" in **under 10 seconds**.
+- **Ready to Serve**: Complete environment setup and AI engine readiness in just **20 seconds**.
 - **Background Kitchen Setup**: While your "Waiter" greets you, the AI "Kitchen" (Whisper, Torch, & uv) prepares in the background.
-- **Queue & Relax**: Send your files immediately; they’ll be queued and processed the moment the kitchen is ready.
 
 ---
 
@@ -20,7 +20,7 @@ Forget waiting for heavy AI models to load. TTB uses a **Microservice-style Star
 
 | Feature | The TTB Experience |
 | :--- | :--- |
-| **🚀 Instant Response** | Micro-startup logic ensures the bot is always ready in **< 10 seconds**. |
+| **🚀 Instant Response** | Micro-startup logic ensures the bot is always ready in **~20 seconds**. |
 | **🔥 Unlimited Power** | Runs **OpenAI Whisper** (`large-v2`) locally on Colab's T4 GPU. No duration limits. |
 | **🌩️ Cloud Fallback** | No GPU? No problem. TTB seamlessly switches to **Gemini API** for CPU environments. |
 | **🧠 Smart Summary** | Get the gist instantly with **Gemini 2.5 Flash** summarizing into key points. |

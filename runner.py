@@ -43,12 +43,13 @@ def main():
         
     print(f"✅ Code ready ({int(time.time()) - int(os.environ['INIT_START'])}s)")
 
-    # 2. Install Dependencies (using uv for speed)
-    print("⏳ Installing dependencies with uv...")
-    if run_command("bash setup_uv.sh") != 0:
-        print("❌ Failed to install dependencies")
+    # 2. Install Core Dependencies
+    print("⏳ Installing core dependencies with uv...")
+    run_command("pip install uv -q")
+    if run_command("uv pip install --system -r requirements_cpu.txt") != 0:
+        print("❌ Failed to install core dependencies")
         sys.exit(1)
-    print(f"✅ Dependencies installed ({int(time.time()) - int(os.environ['INIT_START'])}s)")
+    print(f"✅ Core dependencies installed ({int(time.time()) - int(os.environ['INIT_START'])}s)")
 
     # 3. Run the Bot
     print("🚀 Starting TTB...")

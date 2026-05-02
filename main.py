@@ -29,14 +29,8 @@ from bot_classes import TranscriptionJob, IdleMonitor, JobManager, FilesHandler
 # --- Transcription Mode ---
 MODE = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')
 
-# --- External Libraries ---
+# --- External Libraries (Core) ---
 try:
-    if MODE == 'WHISPER':
-        from faster_whisper import WhisperModel
-        import torch
-    else:
-        log("INIT", "CPU/GEMINI Mode active. Skipping Whisper/Torch.")
-
     from google import genai
     import telegram
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -49,14 +43,7 @@ try:
 except ImportError as e:
     sys.exit(f"❌ Critical Dependency Missing: {e}\nPlease run: pip install -r requirements_cpu.txt")
 
-# Optional: Gradio (Whisper Mode only)
 GRADIO_AVAILABLE = False
-if MODE == 'WHISPER':
-    try:
-        import gradio_handler
-        GRADIO_AVAILABLE = True
-    except ImportError:
-        log("INIT", "Gradio not available.")
 
 # --- Secrets & Config Alias ---
 TELEGRAM_BOT_TOKEN = config.TELEGRAM_BOT_TOKEN
@@ -177,9 +164,49 @@ async def perform_shutdown(reason: str):
 
 async def initialize_models_background():
     """Loads Whisper (if in WHISPER mode) and initializes Gemini client."""
-    global model, gemini_client
+    global model, gemini_client, GRADIO_AVAILABLE
     try:
         if MODE == 'WHISPER':
+            log("INIT", "Checking ML dependencies...")
+            try:
+                import torch
+                from faster_whisper import WhisperModel
+                try:
+                    import gradio_handler
+                    GRADIO_AVAILABLE = True
+                except ImportError:
+                    pass
+            except ImportError:
+                log("INIT", "Heavy ML dependencies missing. Installing in background...")
+                await send_telegram_notification(application, "⏳ *Downloading ML Libraries...*\nBot is online. Transcription will start in ~1-2 minutes.")
+                
+                # Install full requirements
+                process = await asyncio.create_subprocess_exec(
+                    "uv", "pip", "install", "--system", "-r", "requirements.txt",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                
+                if process.returncode != 0:
+                    log("ERROR", f"Failed to install ML dependencies: {stderr.decode()}")
+                    await send_telegram_notification(application, "❌ *Failed to download ML libraries. Fallback to GEMINI mode.*")
+                    global MODE
+                    MODE = 'GEMINI'
+                    os.environ['TRANSCRIPTION_MODE'] = 'GEMINI'
+                else:
+                    log("INIT", "ML dependencies installed successfully.")
+                    import torch
+                    from faster_whisper import WhisperModel
+                    try:
+                        import gradio_handler
+                        GRADIO_AVAILABLE = True
+                    except ImportError:
+                        pass
+
+        if MODE == 'WHISPER':
+            from faster_whisper import WhisperModel
+            import torch
             log("INIT", f"Loading Whisper ({WHISPER_MODEL}, {device})...")
             # Logic for compute_type
             compute_type = "float16" if device == "cuda" else "int8"
@@ -208,6 +235,10 @@ async def initialize_models_background():
 
         models_ready_event.set()
         
+        # Start Gradio web interface if available now
+        if GRADIO_AVAILABLE:
+            application.create_task(initialize_gradio_background())
+            
         # Update startup message
         await update_startup_message()
 

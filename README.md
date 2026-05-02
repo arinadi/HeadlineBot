@@ -37,78 +37,22 @@ The easiest and recommended way is to use Google Colab.
     Ensure the Runtime type is set to **T4 GPU** (Menu: *Runtime > Change runtime type*).
 
 3.  **Run**:
-    Copy the code block below into a single cell in your Colab notebook and run it. This script will automatically clone/update the repository, install dependencies, and start the bot.
+    Copy the code block below into a single cell in your Colab notebook and run it. This script will load your secrets and then execute the runner from the repository.
 
     ```python
     # @title 🚀 Setup & Run TTB
     import os
-    import sys
-    import time
     from google.colab import userdata
 
-    # --- 1. Initialize & Load Secrets ---
-    os.environ['INIT_START'] = str(int(time.time()))
-    
-    try:
-        # Secrets
-        os.environ['TELEGRAM_BOT_TOKEN'] = userdata.get('TELEGRAM_BOT_TOKEN')
-        os.environ['TELEGRAM_CHAT_ID'] = userdata.get('TELEGRAM_CHAT_ID')
-        gemini_key = userdata.get('GEMINI_API_KEY')
-        if gemini_key:
-            os.environ['GEMINI_API_KEY'] = gemini_key
-            
-        # Optional: HuggingFace Token (to avoid rate limits/warnings)
-        hf_token = userdata.get('HF_TOKEN')
-        if hf_token:
-            os.environ['HF_TOKEN'] = hf_token
-            
-        # Optional: HuggingFace Token (to avoid rate limits/warnings)
-        hf_token = userdata.get('HF_TOKEN')
-        if hf_token:
-            os.environ['HF_TOKEN'] = hf_token
-            
-        print("✅ Loaded Keys and Timer")
-        
-    except Exception as e:
-        print(f"⚠️ Warning: Could not load secrets from userdata: {e}")
+    # 1. Load Secrets
+    for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY', 'GITHUB_TOKEN', 'HF_TOKEN']:
+        try:
+            val = userdata.get(key)
+            if val: os.environ[key] = str(val)
+        except: pass
 
-    # --- CONFIGURATION ---
-    # ⚠️ REPLACE THIS WITH YOUR REPOSITORY URL IF NEEDED
-    REPO_URL = "https://github.com/arinadi/TTB.git" 
-    REPO_NAME = "TTB"
-    # ---------------------
-
-    print("🔄 Checking environment...")
-
-    try:
-        # Try to use GITHUB_TOKEN if available for private repos
-        token = userdata.get('GITHUB_TOKEN')
-        if token and "github.com" in REPO_URL:
-            REPO_URL = REPO_URL.replace("https://", f"https://{token}@")
-    except Exception:
-        pass
-
-    # 2. Clone or Update Repository
-    if not os.path.exists(REPO_NAME):
-        print(f"⏳ Cloning {REPO_NAME}...")
-        !git clone --depth 1 {REPO_URL}
-        %cd {REPO_NAME}
-    else:
-        print(f"⏳ Updating {REPO_NAME}...")
-        %cd {REPO_NAME}
-        !git fetch --depth 1 origin
-        !git reset --hard origin/main
-        
-    print(f"✅ Code ready ({int(time.time()) - int(os.environ['INIT_START'])}s)")
-
-    # 3. Install Dependencies (using uv for speed)
-    print("⏳ Installing dependencies with uv...")
-    !bash setup_uv.sh
-    print(f"✅ Dependencies installed ({int(time.time()) - int(os.environ['INIT_START'])}s.")
-
-    # 4. Run the Bot
-    print("🚀 Starting TTB...")
-    !python start.py
+    # 2. Run Remote Script
+    !curl -s https://raw.githubusercontent.com/arinadi/TTB/main/runner.py -o runner.py && python runner.py
     ```
 
 ## 🧠 Smart Mode Selection
@@ -145,6 +89,8 @@ TTB automatically detects your environment and selects the best transcription me
 
 -   `main.py`: Main entry point. Contains Telegram bot logic, queue system, and model initialization.
 -   `config.py`: Centralized configuration and secrets management.
+-   `start.py`: Bot manager that handles idle monitoring and auto-restart.
+-   `runner.py`: Specialized script for Google Colab automation (cloning, deps, running).
 -   `utils.py`: Helper functions for text formatting, logging, and Gemini API wrapper.
 -   `gradio_handler.py`: Optional Gradio web interface for large file uploads.
 -   `requirements.txt`: Optimized list for Colab (excludes pre-installed libs like `requests`, `httpx`, `tqdm`).

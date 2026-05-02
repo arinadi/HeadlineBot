@@ -44,6 +44,9 @@ except ImportError as e:
     sys.exit(f"❌ Critical Dependency Missing: {e}\nPlease run: pip install -r requirements_cpu.txt")
 
 GRADIO_AVAILABLE = False
+gradio_handler = None
+model = None
+gemini_client = None
 
 # --- Secrets & Config Alias ---
 TELEGRAM_BOT_TOKEN = config.TELEGRAM_BOT_TOKEN
@@ -165,7 +168,7 @@ async def perform_shutdown(reason: str):
 
 async def initialize_models_background():
     """Loads Whisper (if in WHISPER mode) and initializes Gemini client."""
-    global model, gemini_client, GRADIO_AVAILABLE, MODE, device
+    global model, gemini_client, GRADIO_AVAILABLE, MODE, device, gradio_handler
     try:
         # Acknowledge the kitchen is heating up
         kitchen_status = "🍳 *Kitchen is heating up...*" if MODE == 'WHISPER' else "🥪 *Preparing snacks...*"
@@ -257,12 +260,14 @@ async def initialize_models_background():
 
     except Exception as e:
         log("ERROR", f"Initialization failed: {e}")
-        await send_telegram_notification(application, f"❌ *FATAL:* Initialization failed: {e}")
+        # Wrap error in code block to avoid Markdown parsing issues
+        await send_telegram_notification(application, f"❌ *FATAL:* Initialization failed:\n`{str(e)}`")
         await perform_shutdown("AI Model Loading Failed")
 
 async def initialize_gradio_background():
     """Launches Gradio web server in background and notifies Telegram with pinned URL."""
-    if not GRADIO_AVAILABLE:
+    global gradio_handler
+    if not GRADIO_AVAILABLE or not gradio_handler:
         log("GRADIO", "Not available, skipping")
         return
     
@@ -291,7 +296,9 @@ async def initialize_gradio_background():
         else:
             log("GRADIO", "Started but no public URL")
     except Exception as e:
-        log("ERROR", f"Gradio failed: {e}")
+        log("ERROR", f"Gradio failed: {str(e)}")
+        # Gradio failure is not fatal to the bot
+        await send_telegram_notification(application, f"⚠️ *Web UI Warning:* Failed to start Gradio:\n`{str(e)}`")
 
 async def update_startup_message(gradio_url: str = None):
     """Updates the persistent startup message with current status."""

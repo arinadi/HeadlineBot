@@ -31,7 +31,6 @@ MODE = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')
 
 # --- External Libraries (Core) ---
 try:
-    from google import genai
     import telegram
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
     from telegram.constants import ParseMode
@@ -47,6 +46,7 @@ GRADIO_AVAILABLE = False
 gradio_handler = None
 model = None
 gemini_client = None
+genai = None # Loaded in background
 
 # --- Secrets & Config Alias ---
 TELEGRAM_BOT_TOKEN = config.TELEGRAM_BOT_TOKEN
@@ -193,7 +193,15 @@ async def initialize_models_background():
                 log("INIT", "Heavy ML dependencies missing. Installing in background...")
                 await send_telegram_notification(application, "📦 *Unpacking heavy equipment...*\nDownloading AI libraries (~1-2 mins). I'll let you know when the kitchen is fully open.")
                 
-                # Install full requirements
+                # 1. Install uv first (now in background)
+                subprocess_uv = await asyncio.create_subprocess_exec(
+                    "pip", "install", "uv", "-q",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await subprocess_uv.communicate()
+
+                # 2. Install full requirements using uv
                 process = await asyncio.create_subprocess_exec(
                     "uv", "pip", "install", "--system", "-r", "requirements.txt",
                     stdout=asyncio.subprocess.PIPE,
@@ -245,6 +253,8 @@ async def initialize_models_background():
         
         if GEMINI_API_KEY:
             log("INIT", "Initializing Gemini...")
+            # Lazy load google-genai
+            from google import genai
             gemini_client = genai.Client(api_key=GEMINI_API_KEY)
             log("INIT", "Gemini ready")
 

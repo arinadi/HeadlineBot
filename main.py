@@ -170,11 +170,14 @@ async def initialize_models_background():
     """Loads Whisper (if in WHISPER mode) and initializes Gemini client."""
     global model, gemini_client, GRADIO_AVAILABLE, MODE, device, gradio_handler
     try:
+        if SHUTDOWN_IN_PROGRESS: return
+
         # Acknowledge the kitchen is heating up
         kitchen_status = "🍳 *Kitchen is heating up...*" if MODE == 'WHISPER' else "🥪 *Preparing snacks...*"
         await send_telegram_notification(application, f"{kitchen_status}\nBot is ready to take orders. AI engine will be ready shortly.")
 
         if MODE == 'WHISPER':
+            if SHUTDOWN_IN_PROGRESS: return
             log("INIT", "Checking ML dependencies...")
             try:
                 import torch
@@ -190,6 +193,7 @@ async def initialize_models_background():
                 except ImportError:
                     pass
             except ImportError:
+                if SHUTDOWN_IN_PROGRESS: return
                 log("INIT", "Heavy ML dependencies missing. Installing in background...")
                 await send_telegram_notification(application, "📦 *Unpacking heavy equipment...*\nDownloading AI libraries (~1-2 mins). I'll let you know when the kitchen is fully open.")
                 
@@ -201,6 +205,8 @@ async def initialize_models_background():
                 )
                 await subprocess_uv.communicate()
 
+                if SHUTDOWN_IN_PROGRESS: return
+
                 # 2. Install full requirements using uv
                 process = await asyncio.create_subprocess_exec(
                     "uv", "pip", "install", "--system", "-r", "requirements.txt",
@@ -209,6 +215,8 @@ async def initialize_models_background():
                 )
                 stdout, stderr = await process.communicate()
                 
+                if SHUTDOWN_IN_PROGRESS: return
+
                 if process.returncode != 0:
                     log("ERROR", f"Failed to install ML dependencies: {stderr.decode()}")
                     await send_telegram_notification(application, "❌ *Kitchen equipment failure.* Falling back to GEMINI (Cloud) mode.")
@@ -226,6 +234,8 @@ async def initialize_models_background():
                         GRADIO_AVAILABLE = True
                     except ImportError:
                         pass
+
+        if SHUTDOWN_IN_PROGRESS: return
 
         if MODE == 'WHISPER':
             from faster_whisper import WhisperModel
@@ -251,12 +261,16 @@ async def initialize_models_background():
             )
             log("INIT", f"Whisper loaded ({compute_type})")
         
+        if SHUTDOWN_IN_PROGRESS: return
+
         if GEMINI_API_KEY:
             log("INIT", "Initializing Gemini...")
             # Lazy load google-genai
             from google import genai
             gemini_client = genai.Client(api_key=GEMINI_API_KEY)
             log("INIT", "Gemini ready")
+
+        if SHUTDOWN_IN_PROGRESS: return
 
         models_ready_event.set()
         
@@ -269,6 +283,7 @@ async def initialize_models_background():
         await send_telegram_notification(application, "🛎️ *Kitchen is now open!* All AI systems are ready to process your orders.")
 
     except Exception as e:
+        if SHUTDOWN_IN_PROGRESS: return
         log("ERROR", f"Initialization failed: {e}")
         # Wrap error in code block to avoid Markdown parsing issues
         await send_telegram_notification(application, f"❌ *FATAL:* Initialization failed:\n`{str(e)}`")

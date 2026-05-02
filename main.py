@@ -166,6 +166,10 @@ async def initialize_models_background():
     """Loads Whisper (if in WHISPER mode) and initializes Gemini client."""
     global model, gemini_client, GRADIO_AVAILABLE
     try:
+        # Acknowledge the kitchen is heating up
+        kitchen_status = "🍳 *Kitchen is heating up...*" if MODE == 'WHISPER' else "🥪 *Preparing snacks...*"
+        await send_telegram_notification(application, f"{kitchen_status}\nBot is ready to take orders. AI engine will be ready shortly.")
+
         if MODE == 'WHISPER':
             log("INIT", "Checking ML dependencies...")
             try:
@@ -178,7 +182,7 @@ async def initialize_models_background():
                     pass
             except ImportError:
                 log("INIT", "Heavy ML dependencies missing. Installing in background...")
-                await send_telegram_notification(application, "⏳ *Downloading ML Libraries...*\nBot is online. Transcription will start in ~1-2 minutes.")
+                await send_telegram_notification(application, "📦 *Unpacking heavy equipment...*\nDownloading AI libraries (~1-2 mins). I'll let you know when the kitchen is fully open.")
                 
                 # Install full requirements
                 process = await asyncio.create_subprocess_exec(
@@ -190,7 +194,7 @@ async def initialize_models_background():
                 
                 if process.returncode != 0:
                     log("ERROR", f"Failed to install ML dependencies: {stderr.decode()}")
-                    await send_telegram_notification(application, "❌ *Failed to download ML libraries. Fallback to GEMINI mode.*")
+                    await send_telegram_notification(application, "❌ *Kitchen equipment failure.* Falling back to GEMINI (Cloud) mode.")
                     global MODE
                     MODE = 'GEMINI'
                     os.environ['TRANSCRIPTION_MODE'] = 'GEMINI'
@@ -241,6 +245,7 @@ async def initialize_models_background():
             
         # Update startup message
         await update_startup_message()
+        await send_telegram_notification(application, "🛎️ *Kitchen is now open!* All AI systems are ready to process your orders.")
 
     except Exception as e:
         log("ERROR", f"Initialization failed: {e}")
@@ -285,26 +290,29 @@ async def update_startup_message(gradio_url: str = None):
     if not STARTUP_MESSAGE_ID:
         return
 
-    ai_status = "✅ Ready" if models_ready_event.is_set() else "⏳ Loading..."
+    ai_status = "✅ Kitchen Open" if models_ready_event.is_set() else "⏳ Preparing..."
     gemini_icon = "✓" if gemini_client else "✗"
     mode_icon = "🌩️" if MODE == 'GEMINI' else "🔥"
+    hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
     
     # If gradio_url is not passed, try to fetch it if it exists
     if not gradio_url and GRADIO_AVAILABLE and gradio_handler.gradio_app:
         if hasattr(gradio_handler.gradio_app, 'share_url'):
             gradio_url = gradio_handler.gradio_app.share_url
 
-    gradio_text = f"\n🌐 *Web UI:* {gradio_url}\n" if gradio_url else ""
+    gradio_text = f"🌐 *Web UI:* {gradio_url}\n" if gradio_url else ""
     
     msg_text = (
-        f"🚀 *Bot Online* ({mode_icon} `{MODE}`)\n\n"
-        f"🤖 *AI Model:* `{'Gemini' if MODE == 'GEMINI' else WHISPER_MODEL}`\n"
-        f"Status: {ai_status} (Gemini AI: {gemini_icon})\n"
+        f"🤵 *Welcome to TTB Restaurant*\n"
+        f"I am your host. Feel free to send your audio/video files anytime.\n\n"
+        f"🛠️ *Equipment:* `{hardware_label}`\n"
+        f"🤖 *AI Engine:* `{'Gemini Cloud' if MODE == 'GEMINI' else WHISPER_MODEL}`\n"
+        f"📢 *Status:* {ai_status}\n"
         f"{gradio_text}"
-        f"📂 Max file: `{BOT_FILESIZE_LIMIT}MB`"
+        f"📂 *Order Limit:* `{BOT_FILESIZE_LIMIT}MB` per file"
     )
     
-    keyboard = [[InlineKeyboardButton("🔌 Shutdown Bot", callback_data="shutdown_bot")]]
+    keyboard = [[InlineKeyboardButton("🔌 Close Restaurant", callback_data="shutdown_bot")]]
     
     try:
         await application.bot.edit_message_text(
@@ -467,19 +475,23 @@ async def get_status_text_and_keyboard():
     """Builds the dynamic status message text and keyboard."""
     processing_job = job_manager.currently_processing
     if processing_job:
-        processing_line = f"▶️ `{processing_job.original_filename}` (by {processing_job.author_display_name})\n"
+        processing_line = f"👨‍🍳 *Currently Cooking:* `{processing_job.original_filename}`\n"
     else:
         processing_line = ""
 
-    ai_status = "✅" if models_ready_event.is_set() else "⏳"
-    mode_label = "Gemini" if MODE == 'GEMINI' else "Whisper"
+    ai_status = "✅ Kitchen Ready" if models_ready_event.is_set() else "⏳ Preparing Kitchen"
+    mode_label = "Gemini Cloud" if MODE == 'GEMINI' else f"Local {WHISPER_MODEL}"
+    hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
+    
     text = (
-        f"📊 *Status* ({mode_label})\n"
+        f"📊 *Restaurant Status*\n"
+        f"🛠️ *Equipment:* `{hardware_label}`\n"
+        f"🤖 *AI Engine:* `{mode_label}`\n"
         f"{processing_line}"
         f"⏳ Uptime: `{get_runtime()}` | Queue: `{job_manager.job_queue.qsize()}`\n"
-        f"🤖 AI: {ai_status}"
+        f"🛎️ *AI Status:* {ai_status}"
     )
-    keyboard = [[InlineKeyboardButton("📄 Jobs", callback_data="view_cancel_jobs"), InlineKeyboardButton("🔄", callback_data="refresh_status"), InlineKeyboardButton("🔌", callback_data="shutdown_bot")]]
+    keyboard = [[InlineKeyboardButton("📄 View Orders", callback_data="view_cancel_jobs"), InlineKeyboardButton("🔄", callback_data="refresh_status"), InlineKeyboardButton("🔌", callback_data="shutdown_bot")]]
 
     return text, InlineKeyboardMarkup(keyboard)
 
@@ -596,13 +608,16 @@ async def main():
 
         # Send startup notification in background (non-blocking)
         mode_icon = "🌩️" if MODE == 'GEMINI' else "🔥"
+        hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
         startup_text = (
-            f"🚀 *Bot Online* ({mode_icon} `{MODE}`)\n\n"
-            f"🤖 *AI Model:* `{'Gemini' if MODE == 'GEMINI' else WHISPER_MODEL}`\n"
-            f"Status: ⏳ Loading...\n\n"
-            f"📂 Max file: `{BOT_FILESIZE_LIMIT}MB`"
+            f"🤵 *Welcome to TTB Restaurant*\n"
+            f"I am your host. Feel free to send your audio/video files anytime.\n\n"
+            f"🛠️ *Equipment:* `{hardware_label}`\n"
+            f"🤖 *AI Engine:* `{'Gemini Cloud' if MODE == 'GEMINI' else WHISPER_MODEL}`\n"
+            f"📢 *Status:* ⏳ Preparing...\n\n"
+            f"📂 *Order Limit:* `{BOT_FILESIZE_LIMIT}MB` per file"
         )
-        keyboard = [[InlineKeyboardButton("🔌 Shutdown Bot", callback_data="shutdown_bot")]]
+        keyboard = [[InlineKeyboardButton("🔌 Close Restaurant", callback_data="shutdown_bot")]]
         
         msg = await application.bot.send_message(
             chat_id=TELEGRAM_CHAT_ID, 

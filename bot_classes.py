@@ -38,7 +38,7 @@ class TranscriptionJob:
         job = cls(
             message_id=message.message_id,
             chat_id=message.chat_id,
-            original_filename=getattr(message.effective_attachment, 'file_name', None) or f"video_{message.effective_attachment.file_id}",
+            original_filename=getattr(message.effective_attachment, 'file_name', None) or f"{type(message.effective_attachment).__name__.lower()}_{message.effective_attachment.file_id}",
             local_filepath=local_path,
             audio_duration=duration
         )
@@ -256,7 +256,7 @@ class FilesHandler:
 
     async def _validate_and_queue_file(self, local_path: str, message: telegram.Message, filename_override: str = None):
         try:
-            original_filename = filename_override or getattr(message.effective_attachment, 'file_name', None) or f"video_{message.effective_attachment.file_id}"
+            original_filename = filename_override or getattr(message.effective_attachment, 'file_name', None) or f"{type(message.effective_attachment).__name__.lower()}_{message.effective_attachment.file_id}"
             probe = await asyncio.to_thread(ffmpeg.probe, local_path)
             duration = float(probe['format']['duration'])
 

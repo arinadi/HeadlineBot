@@ -166,7 +166,7 @@ async def perform_shutdown(reason: str):
     log("SHUTDOWN", f"Initiated. Reason: {reason}")
     try:
         if application:
-            await send_telegram_notification(application, f"🔌 *Shutdown*\nReason: {reason}\nUptime: `{uptime_str}`")
+            await send_telegram_notification(application, f"🔌 *Shutdown*\nReason: `{reason}`\nUptime: `{uptime_str}`")
             log("SHUTDOWN", "Notification sent")
     except Exception as e:
         log("ERROR", f"Final notification failed: {e}")

@@ -38,7 +38,7 @@ class TranscriptionJob:
         job = cls(
             message_id=message.message_id,
             chat_id=message.chat_id,
-            original_filename=message.effective_attachment.file_name or f"video_{message.effective_attachment.file_id}",
+            original_filename=getattr(message.effective_attachment, 'file_name', None) or f"video_{message.effective_attachment.file_id}",
             local_filepath=local_path,
             audio_duration=duration
         )
@@ -256,7 +256,7 @@ class FilesHandler:
 
     async def _validate_and_queue_file(self, local_path: str, message: telegram.Message, filename_override: str = None):
         try:
-            original_filename = filename_override or message.effective_attachment.file_name or f"video_{message.effective_attachment.file_id}"
+            original_filename = filename_override or getattr(message.effective_attachment, 'file_name', None) or f"video_{message.effective_attachment.file_id}"
             probe = await asyncio.to_thread(ffmpeg.probe, local_path)
             duration = float(probe['format']['duration'])
 
@@ -304,14 +304,14 @@ class FilesHandler:
             file_size_mb = attachment.file_size / (1024 * 1024)
             await message.reply_text(
                 f"❌ *File Too Large*\n\n"
-                f"The file `{attachment.file_name}` ({file_size_mb:.2f} MB) exceeds the bot's download limit of "
+                f"The file `{getattr(attachment, 'file_name', 'file')}` ({file_size_mb:.2f} MB) exceeds the bot's download limit of "
                 f"*{Config.BOT_FILESIZE_LIMIT} MB*. Please send a smaller file.",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
 
         file_obj = await attachment.get_file()
-        original_filename = attachment.file_name or f"file_{int(time.time())}"
+        original_filename = getattr(attachment, 'file_name', None) or f"file_{int(time.time())}"
 
         multipart_match = self.multipart_pattern.match(original_filename)
         if multipart_match:
@@ -326,7 +326,7 @@ class FilesHandler:
             await self._validate_and_queue_file(local_path, message)
 
     async def _handle_multipart_chunk(self, message: telegram.Message, file_obj: telegram.File, match: re.Match):
-        base_name, original_filename = match.group(1), message.effective_attachment.file_name
+        base_name, original_filename = match.group(1), match.string
         local_path = os.path.join(self.upload_folder, f"{uuid.uuid4().hex}_{secure_filename(original_filename)}")
         await file_obj.download_to_drive(local_path)
         print(f"Received multipart chunk: {original_filename} (saved to {local_path}) for base '{base_name}'")

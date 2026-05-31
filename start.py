@@ -13,7 +13,7 @@ def check_cuda():
         return False, "No GPU detected (nvidia-smi failed or missing)"
 
 def main():
-    print("🔍 WokBot Smart Runner: Detecting Environment...")
+    print("🔍 HeadlineBot Smart Runner: Detecting Environment...")
     
     is_gpu, gpu_reason = check_cuda()
     
@@ -28,7 +28,7 @@ def main():
     os.environ['TRANSCRIPTION_MODE'] = mode
     
     # Launch main.py
-    print(f"🚀 Starting WokBot in {mode} Mode...")
+    print(f"🚀 Starting HeadlineBot in {mode} Mode...")
     
     try:
         # Use sys.executable to ensure we use the same environment

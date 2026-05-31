@@ -192,7 +192,7 @@ async def initialize_models_background():
 
         # Acknowledge the kitchen is heating up
         kitchen_status = "🍳 *Wok is heating up...*" if MODE == 'WHISPER' else "🥪 *Preparing ingredients...*"
-        await send_telegram_notification(application, f"{kitchen_status}\nWokBot is ready to take orders. AI engine will be ready shortly.")
+        await send_telegram_notification(application, f"{kitchen_status}\nHeadlineBot is ready to take orders. AI engine will be ready shortly.")
 
         if MODE == 'WHISPER':
             if SHUTDOWN_IN_PROGRESS: return
@@ -299,6 +299,13 @@ async def initialize_models_background():
         # Update startup message
         await update_startup_message()
         await send_telegram_notification(application, "🛎️ *Kitchen is now open!* All AI systems are ready to process your orders.")
+
+    except Exception as e:
+        if SHUTDOWN_IN_PROGRESS: return
+        log("ERROR", f"Initialization failed: {e}")
+        await send_telegram_notification(application, f"❌ *FATAL:* Initialization failed:\n`{str(e)}`")
+        await perform_shutdown("AI Model Loading Failed")
+
 
 async def handle_image_edit(local_path: str, filename: str, message: telegram.Message):
     """Callback for processing image files with Gemma 4 color correction."""
@@ -435,8 +442,8 @@ async def update_startup_message(gradio_url: str = None):
     gradio_text = f"🌐 *Web UI:* {gradio_url}\n" if gradio_url else ""
     
     msg_text = (
-        f"👨‍🍳 *Welcome to WokBot*\n"
-        f"I am your chef. Feel free to send your audio/video files anytime.\n\n"
+        f"📰 *Welcome to HeadlineBot*\n"
+        f"Your AI assistant for front-line reporting. Send your files anytime.\n\n"
         f"🛠️ *Equipment:* `{hardware_label}`\n"
         f"🤖 *AI Engine:* `{'Gemini Cloud' if MODE == 'GEMINI' else WHISPER_MODEL}`\n"
         f"📢 *Status:* {ai_status}\n"
@@ -742,8 +749,8 @@ async def main():
         mode_icon = "🌩️" if MODE == 'GEMINI' else "🔥"
         hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
         startup_text = (
-            f"👨‍🍳 *Welcome to WokBot*\n"
-            f"I am your chef. Feel free to send your audio/video files anytime.\n\n"
+            f"📰 *Welcome to HeadlineBot*\n"
+            f"Your AI assistant for front-line reporting. Send your files anytime.\n\n"
             f"🛠️ *Equipment:* `{hardware_label}`\n"
             f"🤖 *AI Engine:* `{'Gemini Cloud' if MODE == 'GEMINI' else WHISPER_MODEL}`\n"
             f"📢 *Status:* ⏳ Preparing...\n\n"

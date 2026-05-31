@@ -1,7 +1,7 @@
 #Todo
 - jangan alias biar konsisten
 
-# WokBot Features
+# HeadlineBot Features
 - [x] Transcription (Whisper/Gemini)
 - [x] AI Summarization
 - [x] Image Color Correction (Gemma 4 + OpenCV)

@@ -1,9 +1,9 @@
-# WokBot - Agent Context
+# HeadlineBot - Agent Context
 
 > **Role**: Act as an Equal Pair Programmer. Maintain consistent coding standards and structures.
 
 ## Project Overview
-WokBot is a Telegram bot designed for **Google Colab** and local systems that performs:
+HeadlineBot is a Telegram bot designed for **Google Colab** and local systems that performs:
 1.  **Transcription**: Using `faster-whisper` (GPU) or **Google Gemini API** (CPU fallback).
 2.  **Summarization**: Using **Google Gemini** (Indonesian context).
 3.  **Image Color Correction**: Using **Gemma 4** for AI-powered photo editing.

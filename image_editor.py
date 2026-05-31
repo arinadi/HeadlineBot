@@ -1,4 +1,4 @@
-# 🎨 Image Editor Module - WokBot
+# 🎨 Image Editor Module - HeadlineBot
 # ------------------------------------------------------------------------------
 # AI-powered photo color correction using Gemma 4 model.
 # Based on Gemini Lightroom pipeline with OpenCV post-processing.

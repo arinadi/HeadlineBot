@@ -3,8 +3,8 @@ import time
 import sys
 
 # --- CONFIGURATION ---
-REPO_URL = "https://github.com/arinadi/WokBot.git"
-REPO_NAME = "WokBot"
+REPO_URL = "https://github.com/arinadi/HeadlineBot.git"
+REPO_NAME = "HeadlineBot"
 # ---------------------
 
 def run_command(cmd):
@@ -51,7 +51,7 @@ def main():
     print(f"✅ Core dependencies ready ({int(time.time()) - int(os.environ['INIT_START'])}s)")
 
     # 3. Run the Bot
-    print("🚀 Starting WokBot...")
+    print("🚀 Starting HeadlineBot...")
     run_command("python start.py")
 
 if __name__ == "__main__":

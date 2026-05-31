@@ -18,7 +18,7 @@ To achieve "faster" performance on Android, the standard industry solution is **
 
 ## Project Specifications
 
-### 1. App Architecture (aligned with [android.md](file:///d:/WokBot/android.md))
+### 1. App Architecture (aligned with [android.md](file:///d:/HeadlineBot/android.md))
 -   **Language**: Kotlin
 -   **UI**: Jetpack Compose (Material3)
 -   **Architecture**: MVVM (Model-View-ViewModel) + Clean Architecture

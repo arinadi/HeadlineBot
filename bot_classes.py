@@ -305,10 +305,14 @@ class FilesHandler:
 
     async def handle_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = update.effective_message
-        if not (message and message.effective_attachment): 
+        if not (message and message.effective_attachment):
             return
 
         attachment = message.effective_attachment
+
+        # Handle Photo (tuple of PhotoSize objects) — get largest
+        if isinstance(attachment, (list, tuple)):
+            attachment = max(attachment, key=lambda p: p.file_size)
 
         if attachment.file_size and attachment.file_size > (Config.BOT_FILESIZE_LIMIT * 1024 * 1024):
             file_size_mb = attachment.file_size / (1024 * 1024)
@@ -323,8 +327,12 @@ class FilesHandler:
         file_obj = await attachment.get_file()
         original_filename = getattr(attachment, 'file_name', None) or f"file_{int(time.time())}"
 
-        # Check if this is an image file
-        if self.is_image_file(original_filename):
+        # Check if this is an image file (by extension or by photo type)
+        is_photo = isinstance(message.effective_attachment, (list, tuple))
+        if is_photo or self.is_image_file(original_filename):
+            # For photos without extension, add .jpg
+            if is_photo and not self.is_image_file(original_filename):
+                original_filename = f"photo_{int(time.time())}.jpg"
             if self.image_callback:
                 local_path = os.path.join(self.upload_folder, f"{uuid.uuid4().hex}_{secure_filename(original_filename)}")
                 await file_obj.download_to_drive(local_path)

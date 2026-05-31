@@ -26,8 +26,8 @@ from utils import (
     log,
     get_runtime
 )
-from bot_classes import TranscriptionJob, IdleMonitor, JobManager, FilesHandler
-from image_editor import edit_image, is_image_file
+from bot_classes import Job, IdleMonitor, JobManager, FilesHandler
+from image_editor import edit_image
 from model_manager import discover_models
 from utils import set_model_chains
 
@@ -315,91 +315,6 @@ async def initialize_models_background():
         await perform_shutdown("AI Model Loading Failed")
 
 
-async def handle_image_edit(local_path: str, filename: str, message: telegram.Message):
-    """Callback for processing image files with Gemma 4 color correction."""
-    try:
-        # No Gemini = just send original back
-        if not gemini_client:
-            with open(local_path, 'rb') as img_file:
-                await message.reply_photo(
-                    photo=img_file,
-                    caption=f"📸 `{filename}`\n\n⚠️ AI color correction unavailable (no GEMINI_API_KEY). Original sent.",
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_to_message_id=message.message_id
-                )
-            if os.path.exists(local_path):
-                os.remove(local_path)
-            return
-
-        # Send processing message
-        # Send processing message
-        status_msg = await message.reply_text(
-            f"🎨 *Analyzing image...*\n`{filename}`\n\nGemma 4 is examining colors and lighting...",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-        # Generate output path
-        base_name = os.path.splitext(filename)[0]
-        ext = os.path.splitext(filename)[1].lower()
-        if ext not in ('.jpg', '.jpeg'):
-            ext = '.jpg'  # Output as JPEG for consistency
-        output_filename = f"edited_{base_name}{ext}"
-        output_path = os.path.join(IMAGE_OUTPUT_FOLDER, f"{uuid.uuid4().hex}_{output_filename}")
-
-        # Process image
-        result = await edit_image(local_path, output_path, gemini_client)
-
-        if result["status"] == "success":
-            params = result["params"]
-            diagnosis = params.get("description", "Color corrected")
-
-            # Update status message
-            await status_msg.edit_text(
-                f"✅ *Image Edited!*\n`{filename}`\n\n"
-                f"📝 *Diagnosis:* {diagnosis}\n"
-                f"🔧 *Adjustments:* Brightness `{params.get('brightness', 0)}`, "
-                f"Contrast `{params.get('contrast', 1.0)}`, "
-                f"Saturation `{params.get('saturation', 1.0)}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-
-            # Send edited image
-            with open(output_path, 'rb') as img_file:
-                await message.reply_photo(
-                    photo=img_file,
-                    caption=f"🎨 *Color Corrected*\n{diagnosis}",
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_to_message_id=message.message_id
-                )
-        else:
-            await status_msg.edit_text(
-                f"❌ *Image Edit Failed*\n`{filename}`\n\nError: {result.get('error', 'Unknown')}",
-                parse_mode=ParseMode.MARKDOWN
-            )
-
-    except Exception as e:
-        log("IMAGE", f"Image edit handler error: {e}")
-        try:
-            await message.reply_text(
-                f"❌ *Image Processing Error*\n`{filename}`\n\n`{str(e)[:200]}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        except Exception:
-            pass
-    finally:
-        # Cleanup
-        if os.path.exists(local_path):
-            try:
-                os.remove(local_path)
-            except Exception:
-                pass
-        if 'output_path' in locals() and os.path.exists(output_path):
-            try:
-                os.remove(output_path)
-            except Exception:
-                pass
-
-
 async def initialize_gradio_background():
     """Launches Gradio web server in background and notifies Telegram with pinned URL."""
     global gradio_handler
@@ -477,7 +392,7 @@ async def update_startup_message(gradio_url: str = None):
         log("ERROR", f"Failed to update startup message: {e}")
 
 
-def run_transcription_process(job: TranscriptionJob) -> tuple[str, str]:
+def run_transcription_process(job: Job) -> tuple[str, str]:
     """Runs the blocking Whisper transcription in a separate thread."""
     # Note: This runs in a thread, so we use print directly (log_utils works here too)
     from utils import log
@@ -519,13 +434,129 @@ def run_transcription_process(job: TranscriptionJob) -> tuple[str, str]:
     
     return formatted_text, info.language if info.language else 'N/A'
 
+async def _process_image_job(job: Job, _start_time: float):
+    """Process an image color correction job."""
+    await application.bot.send_message(job.chat_id, f"🎨 Analyzing `{job.original_filename}`...", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
+
+    # Generate output path
+    base_name = os.path.splitext(job.original_filename)[0]
+    ext = os.path.splitext(job.original_filename)[1].lower()
+    if ext not in ('.jpg', '.jpeg'):
+        ext = '.jpg'
+    output_filename = f"edited_{base_name}{ext}"
+    output_path = os.path.join(IMAGE_OUTPUT_FOLDER, f"{uuid.uuid4().hex}_{output_filename}")
+
+    # Process
+    if gemini_client:
+        result = await edit_image(job.local_filepath, output_path, gemini_client)
+        if result["status"] == "success":
+            params = result["params"]
+            diagnosis = params.get("description", "Color corrected")
+            with open(output_path, 'rb') as img_file:
+                await application.bot.reply_photo(job._original_message, photo=img_file, caption=f"🎨 *{diagnosis}*")
+            log("JOB", f"[{job.job_id}] Image edited: {diagnosis}")
+        else:
+            # Fallback: send original
+            with open(job.local_filepath, 'rb') as img_file:
+                await application.bot.reply_photo(job._original_message, photo=img_file, caption="⚠️ AI correction failed. Original sent.")
+            log("ERROR", f"[{job.job_id}] Image edit failed: {result.get('error')}")
+    else:
+        # No Gemini — send original
+        with open(job.local_filepath, 'rb') as img_file:
+            await application.bot.reply_photo(job._original_message, photo=img_file, caption="⚠️ AI color correction unavailable (no GEMINI_API_KEY). Original sent.")
+
+    # Cleanup output file
+    if os.path.exists(output_path):
+        os.remove(output_path)
+
+
+async def _process_transcript_job(job: Job, start_time: float):
+    """Process a transcription job (transcript + summary + retouch)."""
+    duration_str = format_duration(job.audio_duration)
+    await application.bot.send_message(job.chat_id, f"▶️ Processing `{job.original_filename}` ({duration_str})...", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
+
+    # 1. Transcribe
+    if MODE == 'GEMINI':
+        from utils import transcribe_with_gemini
+        transcript_text, detected_language = await transcribe_with_gemini(job.local_filepath, gemini_client)
+    else:
+        transcript_text, detected_language = await asyncio.to_thread(run_transcription_process, job)
+
+    if job.status == 'cancelled':
+        raise asyncio.CancelledError("Job cancelled during transcription.")
+
+    base_name = os.path.splitext(job.original_filename)[0]
+    safe_name = secure_filename(base_name)[:50]
+    ts_filename = f"{TRANSCRIPT_FILENAME_PREFIX}_({duration_str.replace(' ', '')})_{safe_name}.txt"
+    ts_filepath = os.path.join(TRANSCRIPT_FOLDER, ts_filename)
+    with open(ts_filepath, "w", encoding="utf-8") as f:
+        f.write(transcript_text)
+
+    # Send transcript
+    processing_duration_str = format_duration(time.time() - start_time)
+    log("JOB", f"[{job.job_id}] Transcription done in {processing_duration_str}")
+
+    result_text = (f"✅ *Done!* `{job.original_filename}`\n"
+                   f"⏱️ {duration_str} audio → {processing_duration_str} process\n"
+                   f"🌐 Lang: {detected_language.upper()}\n"
+                   f"🤖 Generating AI Summary...")
+    await application.bot.send_message(job.chat_id, result_text, parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
+
+    with open(ts_filepath, 'rb') as ts_file:
+        await application.bot.send_document(job.chat_id, document=ts_file, filename=ts_filename, reply_to_message_id=job.message_id)
+
+    # 2. AI Summarization (SM)
+    if gemini_client:
+        try:
+            log("JOB", f"[{job.job_id}] Generating summary...")
+            summary_text = await summarize_text(transcript_text, gemini_client)
+
+            if job.status == 'cancelled':
+                raise asyncio.CancelledError("Job cancelled during summarization.")
+
+            su_filename = f"{SUMMARY_FILENAME_PREFIX}_({duration_str.replace(' ', '')})_{safe_name}.txt"
+            su_filepath = os.path.join(TRANSCRIPT_FOLDER, su_filename)
+            with open(su_filepath, "w", encoding="utf-8") as f:
+                f.write(summary_text)
+
+            with open(su_filepath, 'rb') as su_file:
+                await application.bot.send_document(job.chat_id, document=su_file, filename=su_filename, reply_to_message_id=job.message_id)
+
+            log("JOB", f"[{job.job_id}] Summary sent.")
+        except Exception as e:
+            log("ERROR", f"Summary failed: {e}")
+            await application.bot.send_message(job.chat_id, f"⚠️ Summary Failed: {e}", reply_to_message_id=job.message_id)
+
+    # 3. Retouch Transcript (RT) - Whisper mode only
+    if gemini_client and MODE == 'WHISPER':
+        try:
+            log("JOB", f"[{job.job_id}] Generating retouch...")
+            retouch_text = await retouch_transcript(transcript_text, gemini_client)
+
+            if job.status == 'cancelled':
+                raise asyncio.CancelledError("Job cancelled during retouch.")
+
+            rt_filename = f"{RETOUCH_FILENAME_PREFIX}_({duration_str.replace(' ', '')})_{safe_name}.txt"
+            rt_filepath = os.path.join(TRANSCRIPT_FOLDER, rt_filename)
+            with open(rt_filepath, "w", encoding="utf-8") as f:
+                f.write(retouch_text)
+
+            with open(rt_filepath, 'rb') as rt_file:
+                await application.bot.send_document(job.chat_id, document=rt_file, filename=rt_filename, reply_to_message_id=job.message_id)
+
+            log("JOB", f"[{job.job_id}] Retouch sent.")
+        except Exception as e:
+            log("ERROR", f"Retouch failed: {e}")
+            await application.bot.send_message(job.chat_id, f"⚠️ Retouch Failed: {e}", reply_to_message_id=job.message_id)
+
+
 async def queue_processor():
     """The main worker loop that processes jobs from the queue one by one."""
     log("WORKER", "Waiting for AI models...")
     await models_ready_event.wait()
     log("WORKER", "Models ready. Processing jobs...")
     while not SHUTDOWN_IN_PROGRESS:
-        job: TranscriptionJob = await job_manager.job_queue.get()
+        job: Job = await job_manager.job_queue.get()
 
         if job.status == 'cancelled':
             log("WORKER", f"[{job.job_id}] Skipped (cancelled)")
@@ -537,84 +568,10 @@ async def queue_processor():
 
         job_manager.set_processing_job(job)
         try:
-            duration_str = format_duration(job.audio_duration)
-            await application.bot.send_message(job.chat_id, f"▶️ Processing `{job.original_filename}` ({duration_str})...", parse_mode=ParseMode.MARKDOWN)
-            start_time = time.time()
-
-            if MODE == 'GEMINI':
-                from utils import transcribe_with_gemini
-                transcript_text, detected_language = await transcribe_with_gemini(job.local_filepath, gemini_client)
+            if job.job_type == "image":
+                await _process_image_job(job, time.time())
             else:
-                transcript_text, detected_language = await asyncio.to_thread(run_transcription_process, job)
-            
-            if job.status == 'cancelled':
-                raise asyncio.CancelledError("Job cancelled during transcription.")
-
-            base_name = os.path.splitext(job.original_filename)[0]
-            safe_name = secure_filename(base_name)[:50]
-            ts_filename = f"{TRANSCRIPT_FILENAME_PREFIX}_({duration_str.replace(' ', '')})_{safe_name}.txt"
-            ts_filepath = os.path.join(TRANSCRIPT_FOLDER, ts_filename)
-            with open(ts_filepath, "w", encoding="utf-8") as f:
-                f.write(transcript_text)
-
-            # 1. Immediate Notification & TS File
-            processing_duration_str = format_duration(time.time() - start_time)
-            log("JOB", f"[{job.job_id}] Transcription done in {processing_duration_str}")
-            
-            result_text = (f"✅ *Done!* `{job.original_filename}`\n"
-                           f"⏱️ {duration_str} audio → {processing_duration_str} process\n"
-                           f"🌐 Lang: {detected_language.upper()}\n"
-                           f"🤖 Generating AI Summary...")
-
-            await application.bot.send_message(job.chat_id, result_text, parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
-            
-            with open(ts_filepath, 'rb') as ts_file:
-                await application.bot.send_document(job.chat_id, document=ts_file, filename=ts_filename, reply_to_message_id=job.message_id)
-
-            # 2. AI Summarization (SM)
-            if gemini_client:
-                try:
-                    log("JOB", f"[{job.job_id}] Generating summary...")
-                    summary_text = await summarize_text(transcript_text, gemini_client)
-
-                    if job.status == 'cancelled':
-                        raise asyncio.CancelledError("Job cancelled during summarization.")
-
-                    su_filename = f"{SUMMARY_FILENAME_PREFIX}_({duration_str.replace(' ', '')})_{safe_name}.txt"
-                    su_filepath = os.path.join(TRANSCRIPT_FOLDER, su_filename)
-                    with open(su_filepath, "w", encoding="utf-8") as f:
-                        f.write(summary_text)
-
-                    with open(su_filepath, 'rb') as su_file:
-                        await application.bot.send_document(job.chat_id, document=su_file, filename=su_filename, reply_to_message_id=job.message_id)
-
-                    log("JOB", f"[{job.job_id}] Summary sent.")
-                except Exception as e:
-                    log("ERROR", f"Summary failed: {e}")
-                    await application.bot.send_message(job.chat_id, f"⚠️ Summary Failed: {e}", reply_to_message_id=job.message_id)
-
-            # 3. Retouch Transcript (RT) - Whisper mode only
-            if gemini_client and MODE == 'WHISPER':
-                try:
-                    log("JOB", f"[{job.job_id}] Generating retouch...")
-                    retouch_text = await retouch_transcript(transcript_text, gemini_client)
-
-                    if job.status == 'cancelled':
-                        raise asyncio.CancelledError("Job cancelled during retouch.")
-
-                    rt_filename = f"{RETOUCH_FILENAME_PREFIX}_({duration_str.replace(' ', '')})_{safe_name}.txt"
-                    rt_filepath = os.path.join(TRANSCRIPT_FOLDER, rt_filename)
-                    with open(rt_filepath, "w", encoding="utf-8") as f:
-                        f.write(retouch_text)
-
-                    with open(rt_filepath, 'rb') as rt_file:
-                        await application.bot.send_document(job.chat_id, document=rt_file, filename=rt_filename, reply_to_message_id=job.message_id)
-
-                    log("JOB", f"[{job.job_id}] Retouch sent.")
-                except Exception as e:
-                    log("ERROR", f"Retouch failed: {e}")
-                    await application.bot.send_message(job.chat_id, f"⚠️ Retouch Failed: {e}", reply_to_message_id=job.message_id)
-            
+                await _process_transcript_job(job, time.time())
             job.status = "completed"
 
         except asyncio.CancelledError as e:
@@ -629,10 +586,7 @@ async def queue_processor():
                     os.remove(job.local_filepath)
                 except Exception:
                     pass
-            
-            # Cleanup Transcript/Summary files if needed (optional, currently keeping them)
-            # if os.path.exists(ts_filepath): os.remove(ts_filepath)
-            
+
             if 'transcript_text' in locals():
                 del transcript_text
                 gc.collect()
@@ -808,7 +762,7 @@ async def main():
     idle_monitor = IdleMonitor(application, None, perform_shutdown)
     job_manager = JobManager(application, idle_monitor, models_ready_event)
     idle_monitor.job_manager = job_manager
-    files_handler = FilesHandler(job_manager, UPLOAD_FOLDER, image_callback=handle_image_edit)
+    files_handler = FilesHandler(job_manager, UPLOAD_FOLDER)
     
     # Filter for approved chat only
     chat_filter = filters.Chat(chat_id=TELEGRAM_CHAT_ID)

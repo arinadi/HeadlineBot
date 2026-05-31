@@ -24,26 +24,36 @@ IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'}
 
 
 @dataclass
-class TranscriptionJob:
-    """A data class to hold all information about a single transcription job."""
+class Job:
+    """Unified job class for both transcription and image processing."""
     message_id: int
     chat_id: int
     original_filename: str
     local_filepath: str
-    audio_duration: float
+    job_type: str  # "transcript" or "image"
+    audio_duration: float = 0.0
     author_display_name: str = field(init=False)
     job_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     status: str = "queued"
     _original_message: telegram.Message = field(repr=False, init=False)
 
     @classmethod
-    def from_message(cls, message: telegram.Message, local_path: str, duration: float):
+    def from_message(cls, message: telegram.Message, local_path: str, duration: float = 0.0, job_type: str = "transcript"):
+        # Determine filename
+        attachment = message.effective_attachment
+        if isinstance(attachment, (list, tuple)):
+            # Photo tuple — use first photo's file_name or default
+            filename = getattr(attachment[0], 'file_name', None) or f"photo_{int(time.time())}.jpg"
+        else:
+            filename = getattr(attachment, 'file_name', None) or f"{type(attachment).__name__.lower()}_{attachment.file_id}"
+
         job = cls(
             message_id=message.message_id,
             chat_id=message.chat_id,
-            original_filename=getattr(message.effective_attachment, 'file_name', None) or f"{type(message.effective_attachment).__name__.lower()}_{message.effective_attachment.file_id}",
+            original_filename=filename,
             local_filepath=local_path,
-            audio_duration=duration
+            job_type=job_type,
+            audio_duration=duration,
         )
         job._original_message = message
         if message.from_user:
@@ -52,7 +62,7 @@ class TranscriptionJob:
             job.author_display_name = message.chat.title
         else:
             job.author_display_name = "Unknown"
-        log("JOB", f"[{job.job_id}] Created: {job.original_filename} (by {job.author_display_name})")
+        log("JOB", f"[{job.job_id}] Created ({job_type}): {job.original_filename} (by {job.author_display_name})")
         return job
 
 
@@ -199,11 +209,11 @@ class JobManager:
         self.idle_monitor = idle_monitor_ref
         self.models_ready_event = models_ready_event
         self.job_queue = asyncio.Queue()
-        self.currently_processing: Optional[TranscriptionJob] = None
-        self.job_registry: Dict[str, TranscriptionJob] = {}
+        self.currently_processing: Optional[Job] = None
+        self.job_registry: Dict[str, Job] = {}
         log("INIT", "JobManager ready")
 
-    async def add_job(self, job: TranscriptionJob):
+    async def add_job(self, job: Job):
         self.idle_monitor.reset()
         self.job_registry[job.job_id] = job
         await self.job_queue.put(job)
@@ -225,7 +235,7 @@ class JobManager:
         log("JOB", f"[{job_id}] Completed")
         self.idle_monitor.reset()
 
-    def set_processing_job(self, job: TranscriptionJob):
+    def set_processing_job(self, job: Job):
         self.currently_processing = job
         job.status = "processing"
         log("JOB", f"[{job.job_id}] Processing...")
@@ -242,7 +252,7 @@ class JobManager:
     def is_idle(self) -> bool:
         return self.job_queue.empty() and self.currently_processing is None
 
-    def get_queued_jobs(self) -> List[TranscriptionJob]:
+    def get_queued_jobs(self) -> List[Job]:
         return [job for job in self.job_registry.values() if job.status == 'queued']
 
 
@@ -250,12 +260,11 @@ class FilesHandler:
     """Handles all incoming file attachments, including multi-part ZIP archives."""
     COMBINE_TIMEOUT_SECONDS = 30
 
-    def __init__(self, job_manager: JobManager, upload_folder: str, image_callback=None):
+    def __init__(self, job_manager: JobManager, upload_folder: str):
         self.job_manager = job_manager
         self.upload_folder = upload_folder
         self.multipart_archives = {}
         self.multipart_pattern = re.compile(r'(.+)\.(zip|z)\.(\d{2,3})$', re.IGNORECASE)
-        self.image_callback = image_callback  # Callback for image processing
         print("✅ FilesHandler initialized with multi-part ZIP support.")
 
     @staticmethod
@@ -293,7 +302,7 @@ class FilesHandler:
                     'effective_attachment': fake_attachment
                 })
 
-            job = TranscriptionJob.from_message(job_message, local_path, duration)
+            job = Job.from_message(job_message, local_path, duration)
             await self.job_manager.add_job(job)
 
         except Exception as e:
@@ -333,15 +342,10 @@ class FilesHandler:
             # For photos without extension, add .jpg
             if is_photo and not self.is_image_file(original_filename):
                 original_filename = f"photo_{int(time.time())}.jpg"
-            if self.image_callback:
-                local_path = os.path.join(self.upload_folder, f"{uuid.uuid4().hex}_{secure_filename(original_filename)}")
-                await file_obj.download_to_drive(local_path)
-                await self.image_callback(local_path, original_filename, message)
-            else:
-                await message.reply_text(
-                    "🖼️ Image editing is not configured. Please set GEMINI_API_KEY to enable this feature.",
-                    parse_mode=ParseMode.MARKDOWN
-                )
+            local_path = os.path.join(self.upload_folder, f"{uuid.uuid4().hex}_{secure_filename(original_filename)}")
+            await file_obj.download_to_drive(local_path)
+            job = Job.from_message(message, local_path, job_type="image")
+            await self.job_manager.add_job(job)
             return
 
         multipart_match = self.multipart_pattern.match(original_filename)

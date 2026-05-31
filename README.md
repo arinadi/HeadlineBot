@@ -59,11 +59,11 @@ for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY', 'GITHUB_
 ### 🎙️ Transkripsi Cepat
 Kirim audio atau video. HeadlineBot mengubahnya menjadi teks lengkap tanpa timestamp.
 - **GPU Mode**: Whisper large-v2 — akurasi tinggi, tanpa batas durasi
-- **CPU Mode**: Gemini Cloud — otomatis fallback jika tidak ada GPU
+- **CPU Mode**: Gemini Cloud — otomatis pilih model terbaru, fallback jika credit habis
 - **Format**: MP3, MP4, WAV, M4A, WEBM, OGG, FLAC, MKV
 
 ### 📝 Ringkasan Jurnalistik
-Transkrip 30 menit → ringkasan 1 menit yang siap kirim ke editor:
+Transkrip 30 menit → ringkasan 1 menit yang siap kirim ke editor. Menggunakan Gemma 4 (atau flash terbaru) via Smart Model Manager:
 - **Lead** — inti berita dalam 1-2 kalimat
 - **Body** — detail per topik dengan kutipan
 - **Narasumber** — nama, jabatan, kutipan kunci
@@ -77,6 +77,9 @@ Kirim foto dari lapangan — cahaya minim, warna belang, backlight:
 - **Gemma 4 AI** menganalisis foto dan menentukan parameter koreksi
 - **OpenCV Pipeline**: White balance → Brightness → Contrast → Saturation → Vibrance → Sharpness
 - **Quality Guard**: Jika koreksi memperburuk gambar, foto original tetap dikirim
+
+### 🔧 Retouch Transkrip
+Transkrip Whisper → diperbaiki typonya, tanda baca, dan paragraph breaks otomatis via Gemma 4.
 
 ### 📁 Multi-Part ZIP
 Kirim arsip ZIP berpartisi (.zip.01, .zip.02, dst). HeadlineBot akan:
@@ -92,8 +95,10 @@ Kirim arsip ZIP berpartisi (.zip.01, .zip.02, dst). HeadlineBot akan:
 | :--- | :--- | :--- |
 | **Startup** | ⚡ 10 detik | 🐌 1-3 menit |
 | **Transkripsi** | 🎯 Whisper large-v2 (GPU) | 📝 API cloud (bayar per menit) |
-| **Ringkasan** | 📰 Format jurnalistik | 📄 Plain text |
+| **Ringkasan** | 📰 Format jurnalistik (Gemma 4) | 📄 Plain text |
+| **Retouch** | 🔧 Typo fix + paragraph breaks | ❌ Tidak ada |
 | **Foto** | 🎨 Koreksi warna AI | ❌ Tidak ada |
+| **Model Management** | 🤖 Auto-detect & sort by version | ⚙️ Hardcoded |
 | **Batas Durasi** | ♾️ Tanpa batas (GPU) | ⏱️ 10-60 menit |
 | **Harga** | 💰 Gratis (Colab) | 💸 $0.006/menit |
 | **Offline** | ✅ GPU local processing | ❌ Selalu online |
@@ -105,20 +110,22 @@ Kirim arsip ZIP berpartisi (.zip.01, .zip.02, dst). HeadlineBot akan:
 - **OpenAI Whisper** — Transkripsi suara terbaik di dunia, berjalan lokal di GPU
 - **Google Gemini** — Ringkasan cerdas & transkripsi cloud fallback
 - **Gemma 4** — Analisis warna foto dengan AI
+- **Smart Model Manager** — Auto-detect model tersedia, sort by versi, primary + fallback chain
 - **OpenCV** — Pipeline koreksi warna profesional
 - **python-telegram-bot** — Handler Telegram async yang stabil
 - **Gradio** — Web UI alternatif untuk upload file besar
 
 ---
 
-## 📂 Struktur Proyek
+## 📂 File Structure
 
 ```
 HeadlineBot/
 ├── main.py              # Core bot — handlers, queue, worker
+├── model_manager.py     # Smart model discovery — auto-detect flash/gemma, version sort
 ├── image_editor.py      # AI color correction pipeline (Gemma 4 + OpenCV)
 ├── bot_classes.py       # JobManager, FilesHandler
-├── utils.py             # Summarization, formatting, Gemini API
+├── utils.py             # Summarization, retouch, formatting, Gemini API
 ├── config.py            # Konfigurasi via environment variables
 ├── start.py             # GPU/CPU detection, launcher
 ├── runner.py            # Colab entry point
@@ -146,11 +153,12 @@ python start.py
 | :--- | :--- | :--- |
 | `TELEGRAM_BOT_TOKEN` | — | Token dari BotFather (**wajib**) |
 | `TELEGRAM_CHAT_ID` | — | ID chat admin (**wajib**) |
-| `GEMINI_API_KEY` | — | Google AI Studio key (untuk ringkasan & foto) |
+| `GEMINI_API_KEY` | — | Google AI Studio key (untuk ringkasan, retouch, foto) |
 | `MODEL_SIZE` | `large-v2` | Whisper model size |
 | `BOT_FILESIZE_LIMIT` | `20` | Max MB per file |
 | `ENABLE_IDLE_MONITOR` | `True` | Auto-shutdown saat idle (hemat Colab credits) |
-| `GEMMA_MODEL` | `models/gemma-4-26b-a4b-it` | Model untuk analisis warna foto |
+
+> **Catatan Model:** HeadlineBot menggunakan Smart Model Manager yang otomatis mendeteksi model yang tersedia di akun Gemini-mu, memfilter flash & gemma, dan mengurutkan berdasarkan versi terbaru. Tidak perlu setting manual — model primary dan fallback diatur otomatis!
 
 ---
 
@@ -161,7 +169,9 @@ python start.py
                     ↓
 📝 HeadlineBot transkrip (TS_*.txt)
                     ↓
-📰 HeadlineBot ringkasan jurnalistik (AI_*.txt)
+📰 HeadlineBot ringkasan jurnalistik (SM_*.txt)
+                    ↓
+🔧 HeadlineBot retouch transkrip (RT_*.txt)
                     ↓
 📸 Kirim foto → HeadlineBot koreksi warna
                     ↓

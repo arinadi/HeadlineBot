@@ -21,6 +21,7 @@ import config
 from config import Config
 from utils import (
     summarize_text,
+    retouch_transcript,
     format_duration,
     log,
     get_runtime
@@ -93,7 +94,8 @@ if not GEMINI_API_KEY:
 
 # Constants
 TRANSCRIPT_FILENAME_PREFIX = "TS"
-SUMMARY_FILENAME_PREFIX = "AI"
+SUMMARY_FILENAME_PREFIX = "SM"
+RETOUCH_FILENAME_PREFIX = "RT"
 IMAGE_OUTPUT_FOLDER = 'edited_images'
 os.makedirs(IMAGE_OUTPUT_FOLDER, exist_ok=True)
 
@@ -559,27 +561,49 @@ async def queue_processor():
             with open(ts_filepath, 'rb') as ts_file:
                 await application.bot.send_document(job.chat_id, document=ts_file, filename=ts_filename, reply_to_message_id=job.message_id)
 
-            # 2. AI Summarization (Async/Separate Step)
+            # 2. AI Summarization (SM)
             if gemini_client:
                 try:
-                    log("JOB", f"[{job.job_id}] Generating AI summary...")
-                    summary_text = await summarize_text(transcript_text, gemini_client, mode=MODE)
-                    
+                    log("JOB", f"[{job.job_id}] Generating summary...")
+                    summary_text = await summarize_text(transcript_text, gemini_client)
+
                     if job.status == 'cancelled':
                         raise asyncio.CancelledError("Job cancelled during summarization.")
-                    
+
                     su_filename = f"{SUMMARY_FILENAME_PREFIX}_({duration_str.replace(' ', '')})_{safe_name}.txt"
                     su_filepath = os.path.join(TRANSCRIPT_FOLDER, su_filename)
                     with open(su_filepath, "w", encoding="utf-8") as f:
                         f.write(summary_text)
-                        
+
                     with open(su_filepath, 'rb') as su_file:
                         await application.bot.send_document(job.chat_id, document=su_file, filename=su_filename, reply_to_message_id=job.message_id)
-                    
-                    log("JOB", f"[{job.job_id}] AI Summary sent.")
+
+                    log("JOB", f"[{job.job_id}] Summary sent.")
                 except Exception as e:
-                    log("ERROR", f"AI Summary failed: {e}")
-                    await application.bot.send_message(job.chat_id, f"⚠️ AI Summary Failed: {e}", reply_to_message_id=job.message_id)
+                    log("ERROR", f"Summary failed: {e}")
+                    await application.bot.send_message(job.chat_id, f"⚠️ Summary Failed: {e}", reply_to_message_id=job.message_id)
+
+            # 3. Retouch Transcript (RT) - Whisper mode only
+            if gemini_client and MODE == 'WHISPER':
+                try:
+                    log("JOB", f"[{job.job_id}] Generating retouch...")
+                    retouch_text = await retouch_transcript(transcript_text, gemini_client)
+
+                    if job.status == 'cancelled':
+                        raise asyncio.CancelledError("Job cancelled during retouch.")
+
+                    rt_filename = f"{RETOUCH_FILENAME_PREFIX}_({duration_str.replace(' ', '')})_{safe_name}.txt"
+                    rt_filepath = os.path.join(TRANSCRIPT_FOLDER, rt_filename)
+                    with open(rt_filepath, "w", encoding="utf-8") as f:
+                        f.write(retouch_text)
+
+                    with open(rt_filepath, 'rb') as rt_file:
+                        await application.bot.send_document(job.chat_id, document=rt_file, filename=rt_filename, reply_to_message_id=job.message_id)
+
+                    log("JOB", f"[{job.job_id}] Retouch sent.")
+                except Exception as e:
+                    log("ERROR", f"Retouch failed: {e}")
+                    await application.bot.send_message(job.chat_id, f"⚠️ Retouch Failed: {e}", reply_to_message_id=job.message_id)
             
             job.status = "completed"
 

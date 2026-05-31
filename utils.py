@@ -15,7 +15,7 @@ def get_runtime() -> str:
 def log(category: str, message: str):
     """
     Print log with format: [HH:MM:SS] [+Runtime] [CATEGORY] message
-    
+
     Categories: INIT, JOB, IDLE, WORKER, GEMINI, WHISPER, FILE, GRADIO, ERROR
     """
     timestamp = time.strftime("%H:%M:%S")
@@ -24,19 +24,22 @@ def log(category: str, message: str):
 
 # --- AI & Formatting Utilities ---
 
+# Unified Gemini model
+GEMINI_MODEL = "gemini-2.5-flash"
+
 def build_journalist_summary_prompt(today_date: str, file_metadata: str | None = None) -> str:
     """Builder for the summarization prompt."""
     prompt = (
         "Anda adalah AI peringkas untuk jurnalis. "
         "Ringkas transkrip berikut ke dalam Bahasa Indonesia dengan format Plain Text.\n\n"
     )
-    
+
     if file_metadata:
         prompt += (
             "INFORMASI METADATA FILE AUDIO (Sebagai Konteks Tambahan):\n"
             f"{file_metadata}\n\n"
         )
-        
+
     prompt += (
         "ATURAN PENTING:\n"
         "- JANGAN mengarang atau berasumsi informasi yang tidak ada di transkrip.\n"
@@ -71,61 +74,69 @@ def build_journalist_summary_prompt(today_date: str, file_metadata: str | None =
     )
     return prompt
 
-async def summarize_text(transcript: str, gemini_client, mode: str = 'GEMINI') -> str:
-    """Generates a journalist-friendly summary of the transcript using the Gemini API in Indonesian."""
+
+def build_retouch_prompt() -> str:
+    """Builder for the retouch/transcript cleanup prompt."""
+    return (
+        "Anda adalah editor transkrip untuk jurnalis. "
+        "Perbaiki transkrip berikut agar lebih mudah dibaca.\n\n"
+        "ATURAN:\n"
+        "- Perbaiki typo, kesalahan penulisan, serta tanda baca (tanda tanya, koma, dll).\n"
+        "- Berikan jeda baris (enter) di setiap akhir paragraf agar teks lebih mudah dibaca.\n"
+        "- Pastikan urutan kalimat dan struktur asli teks tetap sama.\n"
+        "- JANGAN mengubah isi, makna, atau menambah informasi baru.\n"
+        "- JANGAN mengarang atau berasumsi.\n"
+        "- Output hanya transkrip yang sudah diperbaiki, tanpa penjelasan tambahan.\n\n"
+        "-----\n"
+    )
+
+
+async def summarize_text(transcript: str, gemini_client) -> str:
+    """Generates a journalist-friendly summary of the transcript using Gemini."""
     if not gemini_client:
         return "Summarization disabled: Gemini API key not configured or client failed to load."
 
     today_date = datetime.now().strftime("%d %B %Y")
-    
     prompt = build_journalist_summary_prompt(today_date)
 
+    # GEMINI: pass transcript separately
+    contents = [prompt, transcript]
 
-    # WHISPER mode: append RETOUCH TRANSCRIPT section
-    if mode == 'WHISPER':
-        prompt += (
-            "\n\n"
-            "-----\n\n"
-            "RETOUCH TRANSCRIPT:\n"
-            "! WARNING: Bagian ini adalah hasil perbaikan AI dan mengandung asumsi.\n\n"
-            "[Perbaiki typo, kesalahan penulisan, serta tanda baca (seperti tanda tanya) pada transkrip. "
-            "Berikan jeda baris (enter) di setiap akhir paragraf agar teks lebih mudah dibaca. "
-            "Pastikan urutan kalimat dan struktur asli teks tetap sama.]\n\n"
-            "--- TRANSKRIP ASLI [JANGAN KIRIM KEMBALI] ---\n"
-            f"```\n{transcript}\n```"
-        )
-    
-    # Gemini models
-    PRIMARY_MODEL = "gemini-3-flash-preview"     # Use newer flash as primary
-    FALLBACK_MODEL = "gemini-2.5-flash"
-
-    # WHISPER: transcript already embedded in prompt (RETOUCH section)
-    # GEMINI: pass transcript separately to avoid embedding it in the prompt
-    contents = prompt if mode == 'WHISPER' else [prompt, transcript]
-    
     try:
-        log("GEMINI", f"Requesting summary ({len(transcript)} chars) with {PRIMARY_MODEL}...")
+        log("GEMINI", f"Requesting summary ({len(transcript)} chars) with {GEMINI_MODEL}...")
         response = await asyncio.to_thread(
             gemini_client.models.generate_content,
-            model=PRIMARY_MODEL,
+            model=GEMINI_MODEL,
             contents=contents
         )
         log("GEMINI", f"Summary received ({len(response.text)} chars)")
         return response.text
     except Exception as e:
-        log("ERROR", f"Gemini {PRIMARY_MODEL} failed: {e}")
-        log("GEMINI", f"Retrying with fallback model {FALLBACK_MODEL}...")
-        try:
-            response = await asyncio.to_thread(
-                gemini_client.models.generate_content,
-                model=FALLBACK_MODEL,
-                contents=contents
-            )
-            log("GEMINI", f"Fallback summary received ({len(response.text)} chars)")
-            return response.text
-        except Exception as fallback_error:
-            log("ERROR", f"Gemini {FALLBACK_MODEL} also failed: {fallback_error}")
-            return f"❌ Error generating summary: {fallback_error}"
+        log("ERROR", f"Gemini summary failed: {e}")
+        return f"❌ Error generating summary: {e}"
+
+
+async def retouch_transcript(transcript: str, gemini_client) -> str:
+    """Retouch/clean up transcript: fix typos, punctuation, add paragraph breaks."""
+    if not gemini_client:
+        return transcript  # Return original if no client
+
+    prompt = build_retouch_prompt()
+    contents = [prompt, transcript]
+
+    try:
+        log("GEMINI", f"Requesting retouch ({len(transcript)} chars) with {GEMINI_MODEL}...")
+        response = await asyncio.to_thread(
+            gemini_client.models.generate_content,
+            model=GEMINI_MODEL,
+            contents=contents
+        )
+        log("GEMINI", f"Retouch received ({len(response.text)} chars)")
+        return response.text
+    except Exception as e:
+        log("ERROR", f"Gemini retouch failed: {e}")
+        return transcript  # Return original on error
+
 
 def format_duration(seconds: float) -> str:
     """Converts a duration in seconds to a human-readable 'Xm XXs' format."""
@@ -138,12 +149,12 @@ def format_timestamp(seconds: float) -> str:
     """Formats seconds into [HH:MM:SS] or [MM:SS]."""
     if not isinstance(seconds, (int, float)) or seconds < 0:
         return "[00:00]"
-    
+
     seconds = int(seconds)
     hours = seconds // 3600
     minutes = (seconds % 3600) // 60
     secs = seconds % 60
-    
+
     if hours > 0:
         return f"[{hours:02d}:{minutes:02d}:{secs:02d}]"
     return f"{minutes:02d}:{secs:02d}"
@@ -169,13 +180,13 @@ def format_transcription_with_pauses(segments: list, pause_thresh: float = 2.0) 
         text = str(get_val(seg, 'text', '')).strip()
         if not text:
             continue
-            
+
         start = float(get_val(seg, 'start', 0.0))
         end = float(get_val(seg, 'end', start))
-        
+
         clean_segments.append({
-            'start': start, 
-            'end': end, 
+            'start': start,
+            'end': end,
             'text': text
         })
 
@@ -191,20 +202,20 @@ def format_transcription_with_pauses(segments: list, pause_thresh: float = 2.0) 
     for i in range(1, len(clean_segments)):
         seg = clean_segments[i]
         gap = float(seg['start']) - float(last_end)
-        
+
         if gap > pause_thresh:
             # Commit previous block
             timestamp = format_timestamp(float(current_block_start))
             block_content = " ".join(str(p) for p in current_text_parts)
             blocks.append(f"{timestamp}\n{block_content}")
-            
+
             # Start new block
             current_block_start = seg['start']
             current_text_parts = [seg['text']]
         else:
             # Continue current block
             current_text_parts.append(seg['text'])
-        
+
         last_end = seg['end']
 
     # 3. Commit final block
@@ -222,15 +233,15 @@ def format_transcription_native(segments: list) -> str:
     """
     if not segments:
         return ""
-    
+
     lines = []
     for seg in segments:
         text = str(get_val(seg, 'text', '')).strip()
         if not text:
             continue
-            
+
         lines.append(f"{text}")
-        
+
     return "\n\n".join(lines)
 
 async def transcribe_with_gemini(local_filepath: str, duration: float, gemini_client) -> tuple[str, str]:
@@ -242,15 +253,15 @@ async def transcribe_with_gemini(local_filepath: str, duration: float, gemini_cl
         log("GEMINI", f"Uploading {os.path.basename(local_filepath)}...")
         # 1. Upload
         audio_file = await asyncio.to_thread(
-            gemini_client.files.upload, 
+            gemini_client.files.upload,
             file=local_filepath
         )
-        
+
         # 2. Wait for ACTIVE
         log("GEMINI", "Waiting for file processing...")
         while True:
             audio_file = await asyncio.to_thread(
-                gemini_client.files.get, 
+                gemini_client.files.get,
                 name=audio_file.name
             )
             if audio_file.state.name == "ACTIVE":
@@ -273,7 +284,7 @@ async def transcribe_with_gemini(local_filepath: str, duration: float, gemini_cl
         log("GEMINI", f"Generating transcript for {duration:.1f}s audio...")
         response = await asyncio.to_thread(
             gemini_client.models.generate_content,
-            model="gemini-2.5-flash", # Use specific model for transcript
+            model=GEMINI_MODEL,
             contents=[audio_file, prompt]
         )
 

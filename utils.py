@@ -24,12 +24,32 @@ def log(category: str, message: str):
 
 # --- AI & Formatting Utilities ---
 
-# Model hierarchy:
-# - Summary/Retouch: Gemma 4 (no fallback)
-# - Transcript CPU: Gemini 3.5 Flash (primary) → Gemini 2.5 Flash (fallback)
+# Model chains are discovered at startup via model_manager.py
+# Fallback defaults if discovery fails
 GEMMA_MODEL = "models/gemma-4-26b-a4b-it"
 GEMINI_PRIMARY = "gemini-3-flash-preview"
 GEMINI_FALLBACK = "gemini-2.5-flash"
+
+# Global model chains (set at startup)
+_model_chains = None
+
+
+def set_model_chains(chains: dict):
+    """Set model chains from model_manager.discover_models()."""
+    global _model_chains
+    _model_chains = chains
+
+
+def get_model_chain(task: str) -> dict:
+    """Get model chain for a specific task."""
+    if _model_chains and task in _model_chains:
+        return _model_chains[task]
+    # Fallback defaults
+    return {
+        "primary": GEMMA_MODEL if task in ("summary", "retouch", "photo") else GEMINI_PRIMARY,
+        "fallbacks": [GEMINI_PRIMARY, GEMINI_FALLBACK],
+        "all": [GEMMA_MODEL, GEMINI_PRIMARY, GEMINI_FALLBACK] if task in ("summary", "retouch", "photo") else [GEMINI_PRIMARY, GEMINI_FALLBACK],
+    }
 
 def build_journalist_summary_prompt(today_date: str, file_metadata: str | None = None) -> str:
     """Builder for the summarization prompt."""
@@ -97,7 +117,7 @@ def build_retouch_prompt() -> str:
 
 async def summarize_text(transcript: str, gemini_client) -> str:
     """Generates a journalist-friendly summary of the transcript.
-    Primary: Gemma 4 (no fallback).
+    Uses model chain: primary (gemma) → fallbacks.
     """
     if not gemini_client:
         return "Summarization disabled: Gemini API key not configured or client failed to load."
@@ -106,25 +126,24 @@ async def summarize_text(transcript: str, gemini_client) -> str:
     prompt = build_journalist_summary_prompt(today_date)
 
     from google.genai import types
+    from model_manager import try_model_chain
 
-    try:
-        log("GEMMA", f"Requesting summary ({len(transcript)} chars) with {GEMMA_MODEL}...")
-        response = await asyncio.to_thread(
-            gemini_client.models.generate_content,
-            model=GEMMA_MODEL,
-            contents=[prompt, transcript],
-            config=types.GenerateContentConfig(temperature=0.3),
-        )
-        log("GEMMA", f"Summary received ({len(response.text)} chars)")
+    chain = get_model_chain("summary")
+    config = types.GenerateContentConfig(temperature=0.3)
+
+    response = await try_model_chain(
+        gemini_client, chain, [prompt, transcript],
+        config=config, task_name="summary"
+    )
+
+    if response and response.text:
         return response.text
-    except Exception as e:
-        log("ERROR", f"Gemma summary failed: {e}")
-        return f"❌ Error generating summary: {e}"
+    return "❌ Error generating summary: all models failed"
 
 
 async def retouch_transcript(transcript: str, gemini_client) -> str:
     """Retouch/clean up transcript: fix typos, punctuation, add paragraph breaks.
-    Primary: Gemma 4 (no fallback).
+    Uses model chain: primary (gemma) → fallbacks.
     """
     if not gemini_client:
         return transcript  # Return original if no client
@@ -133,20 +152,19 @@ async def retouch_transcript(transcript: str, gemini_client) -> str:
     contents = [prompt, transcript]
 
     from google.genai import types
+    from model_manager import try_model_chain
 
-    try:
-        log("GEMMA", f"Requesting retouch ({len(transcript)} chars) with {GEMMA_MODEL}...")
-        response = await asyncio.to_thread(
-            gemini_client.models.generate_content,
-            model=GEMMA_MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(temperature=0.3),
-        )
-        log("GEMMA", f"Retouch received ({len(response.text)} chars)")
+    chain = get_model_chain("retouch")
+    config = types.GenerateContentConfig(temperature=0.3)
+
+    response = await try_model_chain(
+        gemini_client, chain, contents,
+        config=config, task_name="retouch"
+    )
+
+    if response and response.text:
         return response.text
-    except Exception as e:
-        log("ERROR", f"Gemma retouch failed: {e}")
-        return transcript  # Return original on error
+    return transcript  # Return original on error
 
 
 def format_duration(seconds: float) -> str:
@@ -255,9 +273,9 @@ def format_transcription_native(segments: list) -> str:
 
     return "\n\n".join(lines)
 
-async def transcribe_with_gemini(local_filepath: str, duration: float, gemini_client) -> tuple[str, str]:
+async def transcribe_with_gemini(local_filepath: str, gemini_client) -> tuple[str, str]:
     """Transcribes audio using Gemini API (File API).
-    Primary: Gemini 3.5 Flash. Fallback: Gemini 2.5 Flash.
+    Uses model chain: primary (flash) → fallbacks.
     """
     if not gemini_client:
         return "Error: Gemini client not initialized.", "N/A"
@@ -283,7 +301,7 @@ async def transcribe_with_gemini(local_filepath: str, duration: float, gemini_cl
                 raise Exception(f"File failed to process. State: {audio_file.state.name}")
             await asyncio.sleep(2)
 
-        # 3. Generate Transcript
+        # 3. Generate Transcript using model chain
         prompt = (
             "Transcribe this audio file accurately. Identify different speakers if possible. "
             "Output only the transcript.\n"
@@ -294,24 +312,18 @@ async def transcribe_with_gemini(local_filepath: str, duration: float, gemini_cl
             "- Simply ensure there is a blank line between every sentence for readability."
         )
 
-        # Try Gemini 3.5 Flash first, fallback to 2.5 Flash
-        for model_name in [GEMINI_PRIMARY, GEMINI_FALLBACK]:
-            try:
-                log("GEMINI", f"Generating transcript with {model_name} for {duration:.1f}s audio...")
-                response = await asyncio.to_thread(
-                    gemini_client.models.generate_content,
-                    model=model_name,
-                    contents=[audio_file, prompt]
-                )
-                if response.text:
-                    log("GEMINI", f"Transcript received with {model_name}")
-                    return response.text, "ID"
-            except Exception as model_error:
-                log("GEMINI", f"{model_name} failed: {model_error}, trying next...")
-                continue
+        from model_manager import try_model_chain
+        chain = get_model_chain("transcript")
 
-        # All models failed
-        return "Error: All Gemini models failed for transcription.", "N/A"
+        response = await try_model_chain(
+            gemini_client, chain, [audio_file, prompt],
+            task_name="transcript"
+        )
+
+        if response and response.text:
+            return response.text, "ID"
+
+        return "Error: All models failed for transcription.", "N/A"
 
     except Exception as e:
         log("ERROR", f"Gemini transcription failed: {e}")

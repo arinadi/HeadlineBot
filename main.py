@@ -28,6 +28,7 @@ from utils import (
 )
 from bot_classes import TranscriptionJob, IdleMonitor, JobManager, FilesHandler
 from image_editor import edit_image, is_image_file
+from model_manager import discover_models, set_model_chains
 
 # --- Transcription Mode ---
 MODE = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')
@@ -290,6 +291,10 @@ async def initialize_models_background():
             gemini_client = genai.Client(api_key=GEMINI_API_KEY)
             log("INIT", "Gemini ready")
 
+            # Discover available models
+            model_chains = await discover_models(gemini_client)
+            set_model_chains(model_chains)
+
         if SHUTDOWN_IN_PROGRESS: return
 
         models_ready_event.set()
@@ -533,7 +538,7 @@ async def queue_processor():
 
             if MODE == 'GEMINI':
                 from utils import transcribe_with_gemini
-                transcript_text, detected_language = await transcribe_with_gemini(job.local_filepath, job.audio_duration, gemini_client)
+                transcript_text, detected_language = await transcribe_with_gemini(job.local_filepath, gemini_client)
             else:
                 transcript_text, detected_language = await asyncio.to_thread(run_transcription_process, job)
             

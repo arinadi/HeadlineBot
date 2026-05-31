@@ -25,10 +25,11 @@ def log(category: str, message: str):
 # --- AI & Formatting Utilities ---
 
 # Model hierarchy:
-# - Summary: Gemma (primary) → Gemini flash (fallback)
-# - Transcript CPU: Gemini flash only
-GEMMA_MODEL = "models/gemma-4-26b-a4b-it"  # Primary for summary
-GEMINI_MODEL = "gemini-2.5-flash"          # Fallback / CPU transcript
+# - Summary/Retouch: Gemma 4 (no fallback)
+# - Transcript CPU: Gemini 3.5 Flash (primary) → Gemini 2.5 Flash (fallback)
+GEMMA_MODEL = "models/gemma-4-26b-a4b-it"
+GEMINI_PRIMARY = "gemini-3-flash-preview"
+GEMINI_FALLBACK = "gemini-2.5-flash"
 
 def build_journalist_summary_prompt(today_date: str, file_metadata: str | None = None) -> str:
     """Builder for the summarization prompt."""
@@ -96,7 +97,7 @@ def build_retouch_prompt() -> str:
 
 async def summarize_text(transcript: str, gemini_client) -> str:
     """Generates a journalist-friendly summary of the transcript.
-    Primary: Gemma 4 (like photo pipeline). Fallback: Gemini flash.
+    Primary: Gemma 4 (no fallback).
     """
     if not gemini_client:
         return "Summarization disabled: Gemini API key not configured or client failed to load."
@@ -106,7 +107,6 @@ async def summarize_text(transcript: str, gemini_client) -> str:
 
     from google.genai import types
 
-    # 1. Try Gemma 4 (primary)
     try:
         log("GEMMA", f"Requesting summary ({len(transcript)} chars) with {GEMMA_MODEL}...")
         response = await asyncio.to_thread(
@@ -118,26 +118,13 @@ async def summarize_text(transcript: str, gemini_client) -> str:
         log("GEMMA", f"Summary received ({len(response.text)} chars)")
         return response.text
     except Exception as e:
-        log("GEMMA", f"Gemma summary failed: {e}, falling back to Gemini...")
-
-    # 2. Fallback to Gemini flash
-    try:
-        log("GEMINI", f"Requesting summary ({len(transcript)} chars) with {GEMINI_MODEL}...")
-        response = await asyncio.to_thread(
-            gemini_client.models.generate_content,
-            model=GEMINI_MODEL,
-            contents=[prompt, transcript]
-        )
-        log("GEMINI", f"Fallback summary received ({len(response.text)} chars)")
-        return response.text
-    except Exception as e:
-        log("ERROR", f"Gemini fallback also failed: {e}")
+        log("ERROR", f"Gemma summary failed: {e}")
         return f"❌ Error generating summary: {e}"
 
 
 async def retouch_transcript(transcript: str, gemini_client) -> str:
     """Retouch/clean up transcript: fix typos, punctuation, add paragraph breaks.
-    Primary: Gemma 4. Fallback: Gemini flash.
+    Primary: Gemma 4 (no fallback).
     """
     if not gemini_client:
         return transcript  # Return original if no client
@@ -147,7 +134,6 @@ async def retouch_transcript(transcript: str, gemini_client) -> str:
 
     from google.genai import types
 
-    # 1. Try Gemma 4 (primary)
     try:
         log("GEMMA", f"Requesting retouch ({len(transcript)} chars) with {GEMMA_MODEL}...")
         response = await asyncio.to_thread(
@@ -159,20 +145,7 @@ async def retouch_transcript(transcript: str, gemini_client) -> str:
         log("GEMMA", f"Retouch received ({len(response.text)} chars)")
         return response.text
     except Exception as e:
-        log("GEMMA", f"Gemma retouch failed: {e}, falling back to Gemini...")
-
-    # 2. Fallback to Gemini flash
-    try:
-        log("GEMINI", f"Requesting retouch ({len(transcript)} chars) with {GEMINI_MODEL}...")
-        response = await asyncio.to_thread(
-            gemini_client.models.generate_content,
-            model=GEMINI_MODEL,
-            contents=contents
-        )
-        log("GEMINI", f"Fallback retouch received ({len(response.text)} chars)")
-        return response.text
-    except Exception as e:
-        log("ERROR", f"Gemini fallback retouch also failed: {e}")
+        log("ERROR", f"Gemma retouch failed: {e}")
         return transcript  # Return original on error
 
 
@@ -283,7 +256,9 @@ def format_transcription_native(segments: list) -> str:
     return "\n\n".join(lines)
 
 async def transcribe_with_gemini(local_filepath: str, duration: float, gemini_client) -> tuple[str, str]:
-    """Transcribes audio using Gemini API (File API)."""
+    """Transcribes audio using Gemini API (File API).
+    Primary: Gemini 3.5 Flash. Fallback: Gemini 2.5 Flash.
+    """
     if not gemini_client:
         return "Error: Gemini client not initialized.", "N/A"
 
@@ -319,17 +294,24 @@ async def transcribe_with_gemini(local_filepath: str, duration: float, gemini_cl
             "- Simply ensure there is a blank line between every sentence for readability."
         )
 
-        log("GEMINI", f"Generating transcript for {duration:.1f}s audio...")
-        response = await asyncio.to_thread(
-            gemini_client.models.generate_content,
-            model=GEMINI_MODEL,
-            contents=[audio_file, prompt]
-        )
+        # Try Gemini 3.5 Flash first, fallback to 2.5 Flash
+        for model_name in [GEMINI_PRIMARY, GEMINI_FALLBACK]:
+            try:
+                log("GEMINI", f"Generating transcript with {model_name} for {duration:.1f}s audio...")
+                response = await asyncio.to_thread(
+                    gemini_client.models.generate_content,
+                    model=model_name,
+                    contents=[audio_file, prompt]
+                )
+                if response.text:
+                    log("GEMINI", f"Transcript received with {model_name}")
+                    return response.text, "ID"
+            except Exception as model_error:
+                log("GEMINI", f"{model_name} failed: {model_error}, trying next...")
+                continue
 
-        if not response.text:
-            return "Warning: Empty transcript returned by Gemini.", "N/A"
-
-        return response.text, "ID" # Assume ID as default or let gemini detect (but return ID for lang label)
+        # All models failed
+        return "Error: All Gemini models failed for transcription.", "N/A"
 
     except Exception as e:
         log("ERROR", f"Gemini transcription failed: {e}")

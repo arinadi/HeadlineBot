@@ -317,17 +317,21 @@ async def initialize_models_background():
 
 async def handle_image_edit(local_path: str, filename: str, message: telegram.Message):
     """Callback for processing image files with Gemma 4 color correction."""
-    if not gemini_client:
-        await message.reply_text(
-            "🖼️ *Image Editing Unavailable*\n\n"
-            "GEMINI_API_KEY is required for AI-powered color correction.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        if os.path.exists(local_path):
-            os.remove(local_path)
-        return
-
     try:
+        # No Gemini = just send original back
+        if not gemini_client:
+            with open(local_path, 'rb') as img_file:
+                await message.reply_photo(
+                    photo=img_file,
+                    caption=f"📸 `{filename}`\n\n⚠️ AI color correction unavailable (no GEMINI_API_KEY). Original sent.",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_to_message_id=message.message_id
+                )
+            if os.path.exists(local_path):
+                os.remove(local_path)
+            return
+
+        # Send processing message
         # Send processing message
         status_msg = await message.reply_text(
             f"🎨 *Analyzing image...*\n`{filename}`\n\nGemma 4 is examining colors and lighting...",

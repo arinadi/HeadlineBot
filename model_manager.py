@@ -161,28 +161,12 @@ async def discover_models(gemini_client) -> dict:
 
     except Exception as e:
         log("ERROR", f"Model discovery failed: {e}")
-        # Return hardcoded defaults
+        # Return minimal defaults — let try_model_chain handle failures gracefully
         return {
-            "transcript": {
-                "primary": "gemini-3.5-flash",
-                "fallbacks": ["gemini-2.5-flash"],
-                "all": ["gemini-3.5-flash", "gemini-2.5-flash"],
-            },
-            "summary": {
-                "primary": "models/gemma-4-26b-a4b-it",
-                "fallbacks": ["gemini-3.5-flash", "gemini-2.5-flash"],
-                "all": ["models/gemma-4-26b-a4b-it", "gemini-3.5-flash", "gemini-2.5-flash"],
-            },
-            "retouch": {
-                "primary": "models/gemma-4-26b-a4b-it",
-                "fallbacks": ["gemini-3.5-flash", "gemini-2.5-flash"],
-                "all": ["models/gemma-4-26b-a4b-it", "gemini-3.5-flash", "gemini-2.5-flash"],
-            },
-            "photo": {
-                "primary": "models/gemma-4-26b-a4b-it",
-                "fallbacks": ["gemini-3.5-flash", "gemini-2.5-flash"],
-                "all": ["models/gemma-4-26b-a4b-it", "gemini-3.5-flash", "gemini-2.5-flash"],
-            },
+            "transcript": {"primary": None, "fallbacks": [], "all": []},
+            "summary": {"primary": None, "fallbacks": [], "all": []},
+            "retouch": {"primary": None, "fallbacks": [], "all": []},
+            "photo": {"primary": None, "fallbacks": [], "all": []},
             "all": [],
         }
 
@@ -199,6 +183,9 @@ async def try_model_chain(
     Returns first successful response, or None if all fail.
     """
     models_to_try = model_chain.get("all", [])
+    if not models_to_try:
+        log("ERROR", f"No models available for {task_name}")
+        return None
 
     for model_name in models_to_try:
         try:

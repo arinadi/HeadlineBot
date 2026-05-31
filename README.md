@@ -1,100 +1,173 @@
-# 📰 HeadlineBot: Fast AI Bot for Front-Line Journalists
+# 📰 HeadlineBot
 
-[![Google Colab](https://img.shields.io/badge/Run%20on-Google%20Colab-orange?logo=googlecolab)](https://colab.research.google.com/)
+### Your Story is Breaking. Your AI is Ready.
+
+**Transkrip instan, ringkasan cerdas, foto berwarna — langsung dari Telegram.**
+
+Kirim file audio, video, atau foto dari ponselmu. HeadlineBot akan mengubahnya menjadi transkrip siap publish, ringkasan jurnalistik, dan foto yang sudah dikoreksi warnanya — dalam hitungan menit, bukan jam.
+
+[![Google Colab](https://img.shields.io/badge/Try%20Now-Colab-orange?logo=googlecolab)](https://colab.research.google.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**HeadlineBot** is an AI assistant for front-line journalists who need fast transcription, instant summaries, and automatic photo color correction — all from Telegram. Powered by **OpenAI Whisper** for accurate transcription, **Google Gemini** for smart summarization, and **Gemma 4** for AI-powered image color correction.
-
 ---
 
-## 🚀 One-Click Gourmet Experience (Google Colab)
+## ⚡ Ini Bukan Bot Biasa
 
-1.  **Prepare your Secrets** 🔑:
-    In Colab's **Secrets** tab, add:
-    - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
-    - `GEMINI_API_KEY` (Required for summaries and image editing)
-    - `HF_TOKEN`, `GITHUB_TOKEN` (Optional for private use/faster downloads)
+Jurnalis lapangan tidak punya waktu menunggu. HeadlineBot dirancang khusus untukmu:
 
-2.  **Turn on the Stove** 🔥:
-    Set Runtime to **T4 GPU** (*Runtime > Change runtime type*).
-
-3.  **Place your Order** 🛎️:
-    Copy and run this cell. Your AI chef will be with you in seconds:
-
-    ```python
-    # @title 📰 Start HeadlineBot
-    import os
-    from google.colab import userdata
-
-    # 1. Load Secrets
-    for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY', 'GITHUB_TOKEN', 'HF_TOKEN']:
-        try:
-            val = userdata.get(key)
-            if val: os.environ[key] = str(val)
-        except: pass
-
-    # 2. Start HeadlineBot
-    !curl -s https://raw.githubusercontent.com/arinadi/HeadlineBot/main/runner.py -o runner.py && python runner.py
-    ```
-
----
-
-## ⚡ Lightning Fast Service
-
-Forget waiting for heavy AI models to load. HeadlineBot uses a **Microservice-style Startup** optimized for Google Colab:
-- **Immediate Greeting**: The bot is online and ready to take your "orders" in **under 10 seconds**.
-- **Ready to Serve**: Complete environment setup and AI engine readiness in just **20 seconds**.
-- **Background Kitchen Setup**: While your chef greets you, the AI "Kitchen" (Whisper, Torch, & uv) prepares in the background.
-
----
-
-## ✨ Why Choose HeadlineBot?
-
-| Feature | The HeadlineBot Experience |
+| Masalahmu | Solusi HeadlineBot |
 | :--- | :--- |
-| **🚀 Instant Response** | Micro-startup logic ensures the bot is always ready in **~20 seconds**. |
-| **🔥 Unlimited Power** | Runs **OpenAI Whisper** (`large-v2`) locally on Colab's T4 GPU. No duration limits. |
-| **🌩️ Cloud Fallback** | No GPU? No problem. HeadlineBot seamlessly switches to **Gemini API** for CPU environments. |
-| **🧠 Smart Summary** | Journalist-style summaries in Indonesian with **Gemini 2.5 Flash**. |
-| **🎨 Image Color Correction** | AI-powered photo editing using **Gemma 4** - automatic white balance, exposure, and color grading. |
-| **📂 Any Format** | Audio, video, images, multi-part ZIPs — HeadlineBot handles it all. |
-| **📱 Telegram First** | Send files from your phone, get results back on Telegram — perfect for front-line journalists. |
+| Wawancara 2 jam, harus ditranskrip malam ini | 🎙️ **Transkrip selesai sebelum kamu sampai hotel** — Whisper AI + GPU lokal |
+| Butuh ringkasan untuk editor | 📝 **Ringkasan jurnalistik otomatis** — format Fakta Berita, Lead, Body, Narasumber |
+| Foto kondisi buruk, cahaya minim | 🎨 **Koreksi warna AI** — white balance, exposure, color grading otomatis |
+| File terlalu besar untuk Telegram | 📁 **Multi-part ZIP support** — gabung otomatis, ekstrak audio |
+| Bot lambat loading AI | ⚡ **Online dalam 10 detik** — startup mikro, AI load di background |
 
 ---
 
-## 🛠️ The Tech Behind the Bot
+## 🚀 Mulai dalam 3 Langkah
 
-- **Faster-Whisper**: Optimized for speed and precision using CTranslate2.
-- **VAD (Voice Activity Detection)**: Intelligent silence filtering to reduce hallucinations.
-- **uv Installer**: Ultra-fast dependency management to get the bot online faster.
-- **Resilient Polling**: Advanced error handling for stable connections in Colab.
-- **Gemma 4 Image Editor**: AI-powered color correction with Gray World white balance, contrast LUT, and quality guards.
-- **OpenCV Pipeline**: Professional-grade image processing with brightness, contrast, saturation, vibrance, clarity, and sharpness adjustments.
+### 1. Siapkan Secret
+Di Colab tab **Secrets**, tambahkan:
+- `TELEGRAM_BOT_TOKEN` — dari @BotFather
+- `TELEGRAM_CHAT_ID` — ID chat Telegrammu
+- `GEMINI_API_KEY` — untuk ringkasan & koreksi warna
+
+### 2. Set GPU
+*Runtime > Change runtime type* → pilih **T4 GPU**
+
+### 3. Jalankan
+```python
+import os
+from google.colab import userdata
+
+for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY', 'GITHUB_TOKEN', 'HF_TOKEN']:
+    try:
+        val = userdata.get(key)
+        if val: os.environ[key] = str(val)
+    except: pass
+
+!curl -s https://raw.githubusercontent.com/arinadi/HeadlineBot/main/runner.py -o runner.py && python runner.py
+```
+
+**Selesai.** Buka Telegram, kirim file, dan saksikan.
 
 ---
 
-## 📂 File Structure
+## 🧠 Apa yang Bisa HeadlineBot?
 
-- `main.py`: Core bot logic, Telegram handlers, and job worker.
-- `runner.py`: Colab entry point — clones repo, installs deps, launches bot.
-- `start.py`: Environment detection — sets GPU/CPU mode.
-- `utils.py`: Formatting, summarization, and Gemini API wrappers.
-- `image_editor.py`: AI-powered image color correction with Gemma 4 + OpenCV.
-- `gradio_handler.py`: Optional web UI for large file uploads.
-- `bot_classes.py`: Data structures — `JobManager`, `FilesHandler`.
+### 🎙️ Transkripsi Cepat
+Kirim audio atau video. HeadlineBot mengubahnya menjadi teks lengkap tanpa timestamp.
+- **GPU Mode**: Whisper large-v2 — akurasi tinggi, tanpa batas durasi
+- **CPU Mode**: Gemini Cloud — otomatis fallback jika tidak ada GPU
+- **Format**: MP3, MP4, WAV, M4A, WEBM, OGG, FLAC, MKV
+
+### 📝 Ringkasan Jurnalistik
+Transkrip 30 menit → ringkasan 1 menit yang siap kirim ke editor:
+- **Lead** — inti berita dalam 1-2 kalimat
+- **Body** — detail per topik dengan kutipan
+- **Narasumber** — nama, jabatan, kutipan kunci
+- **Data Pendukung** — angka dan statistik
+- **Perlu Klarifikasi** — hal yang masih abu-abu
+
+Semua dalam Bahasa Indonesia, format jurnalistik.
+
+### 🎨 Koreksi Warna Foto
+Kirim foto dari lapangan — cahaya minim, warna belang, backlight:
+- **Gemma 4 AI** menganalisis foto dan menentukan parameter koreksi
+- **OpenCV Pipeline**: White balance → Brightness → Contrast → Saturation → Vibrance → Sharpness
+- **Quality Guard**: Jika koreksi memperburuk gambar, foto original tetap dikirim
+
+### 📁 Multi-Part ZIP
+Kirim arsip ZIP berpartisi (.zip.01, .zip.02, dst). HeadlineBot akan:
+1. Menggabungkan semua part secara otomatis
+2. Mengekstrak file audio dari dalamnya
+3. Memproses satu per satu ke queue
+
+---
+
+## ⚡ Kenapa HeadlineBot?
+
+| | HeadlineBot | Bot Transkripsi Lain |
+| :--- | :--- | :--- |
+| **Startup** | ⚡ 10 detik | 🐌 1-3 menit |
+| **Transkripsi** | 🎯 Whisper large-v2 (GPU) | 📝 API cloud (bayar per menit) |
+| **Ringkasan** | 📰 Format jurnalistik | 📄 Plain text |
+| **Foto** | 🎨 Koreksi warna AI | ❌ Tidak ada |
+| **Batas Durasi** | ♾️ Tanpa batas (GPU) | ⏱️ 10-60 menit |
+| **Harga** | 💰 Gratis (Colab) | 💸 $0.006/menit |
+| **Offline** | ✅ GPU local processing | ❌ Selalu online |
+
+---
+
+## 🛠️ Tech Stack
+
+- **OpenAI Whisper** — Transkripsi suara terbaik di dunia, berjalan lokal di GPU
+- **Google Gemini** — Ringkasan cerdas & transkripsi cloud fallback
+- **Gemma 4** — Analisis warna foto dengan AI
+- **OpenCV** — Pipeline koreksi warna profesional
+- **python-telegram-bot** — Handler Telegram async yang stabil
+- **Gradio** — Web UI alternatif untuk upload file besar
+
+---
+
+## 📂 Struktur Proyek
+
+```
+HeadlineBot/
+├── main.py              # Core bot — handlers, queue, worker
+├── image_editor.py      # AI color correction pipeline (Gemma 4 + OpenCV)
+├── bot_classes.py       # JobManager, FilesHandler
+├── utils.py             # Summarization, formatting, Gemini API
+├── config.py            # Konfigurasi via environment variables
+├── start.py             # GPU/CPU detection, launcher
+├── runner.py            # Colab entry point
+├── gradio_handler.py    # Web UI untuk file besar
+├── requirements.txt     # GPU dependencies
+└── requirements_cpu.txt # CPU-only dependencies
+```
 
 ---
 
 ## 💻 Local Setup
 
-Prefer to host yourself?
 ```bash
 git clone https://github.com/arinadi/HeadlineBot.git
 cd HeadlineBot
-bash setup_uv.sh  # Auto-detects hardware and installs everything
+bash setup_uv.sh  # Auto-detect hardware & install
 python start.py
 ```
 
 ---
 
-*”Fast transcription, instant summaries, color-corrected photos — for front-line journalists who need results now.”* 📰✨
+## ⚙️ Konfigurasi
+
+| Variable | Default | Keterangan |
+| :--- | :--- | :--- |
+| `TELEGRAM_BOT_TOKEN` | — | Token dari BotFather (**wajib**) |
+| `TELEGRAM_CHAT_ID` | — | ID chat admin (**wajib**) |
+| `GEMINI_API_KEY` | — | Google AI Studio key (untuk ringkasan & foto) |
+| `MODEL_SIZE` | `large-v2` | Whisper model size |
+| `BOT_FILESIZE_LIMIT` | `20` | Max MB per file |
+| `ENABLE_IDLE_MONITOR` | `True` | Auto-shutdown saat idle (hemat Colab credits) |
+| `GEMMA_MODEL` | `models/gemma-4-26b-a4b-it` | Model untuk analisis warna foto |
+
+---
+
+## 📱 Workflow Jurnalis Lapangan
+
+```
+🎤 Wawancara → kirim audio ke Telegram
+                    ↓
+📝 HeadlineBot transkrip (TS_*.txt)
+                    ↓
+📰 HeadlineBot ringkasan jurnalistik (AI_*.txt)
+                    ↓
+📸 Kirim foto → HeadlineBot koreksi warna
+                    ↓
+✅ Siap kirim ke redaksi
+```
+
+---
+
+**HeadlineBot** — *Your story is breaking. Your AI is ready.* 📰⚡

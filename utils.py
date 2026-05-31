@@ -24,8 +24,11 @@ def log(category: str, message: str):
 
 # --- AI & Formatting Utilities ---
 
-# Unified Gemini model
-GEMINI_MODEL = "gemini-2.5-flash"
+# Model hierarchy:
+# - Summary: Gemma (primary) → Gemini flash (fallback)
+# - Transcript CPU: Gemini flash only
+GEMMA_MODEL = "models/gemma-4-26b-a4b-it"  # Primary for summary
+GEMINI_MODEL = "gemini-2.5-flash"          # Fallback / CPU transcript
 
 def build_journalist_summary_prompt(today_date: str, file_metadata: str | None = None) -> str:
     """Builder for the summarization prompt."""
@@ -92,38 +95,73 @@ def build_retouch_prompt() -> str:
 
 
 async def summarize_text(transcript: str, gemini_client) -> str:
-    """Generates a journalist-friendly summary of the transcript using Gemini."""
+    """Generates a journalist-friendly summary of the transcript.
+    Primary: Gemma 4 (like photo pipeline). Fallback: Gemini flash.
+    """
     if not gemini_client:
         return "Summarization disabled: Gemini API key not configured or client failed to load."
 
     today_date = datetime.now().strftime("%d %B %Y")
     prompt = build_journalist_summary_prompt(today_date)
 
-    # GEMINI: pass transcript separately
-    contents = [prompt, transcript]
+    from google.genai import types
 
+    # 1. Try Gemma 4 (primary)
+    try:
+        log("GEMMA", f"Requesting summary ({len(transcript)} chars) with {GEMMA_MODEL}...")
+        response = await asyncio.to_thread(
+            gemini_client.models.generate_content,
+            model=GEMMA_MODEL,
+            contents=[prompt, transcript],
+            config=types.GenerateContentConfig(temperature=0.3),
+        )
+        log("GEMMA", f"Summary received ({len(response.text)} chars)")
+        return response.text
+    except Exception as e:
+        log("GEMMA", f"Gemma summary failed: {e}, falling back to Gemini...")
+
+    # 2. Fallback to Gemini flash
     try:
         log("GEMINI", f"Requesting summary ({len(transcript)} chars) with {GEMINI_MODEL}...")
         response = await asyncio.to_thread(
             gemini_client.models.generate_content,
             model=GEMINI_MODEL,
-            contents=contents
+            contents=[prompt, transcript]
         )
-        log("GEMINI", f"Summary received ({len(response.text)} chars)")
+        log("GEMINI", f"Fallback summary received ({len(response.text)} chars)")
         return response.text
     except Exception as e:
-        log("ERROR", f"Gemini summary failed: {e}")
+        log("ERROR", f"Gemini fallback also failed: {e}")
         return f"❌ Error generating summary: {e}"
 
 
 async def retouch_transcript(transcript: str, gemini_client) -> str:
-    """Retouch/clean up transcript: fix typos, punctuation, add paragraph breaks."""
+    """Retouch/clean up transcript: fix typos, punctuation, add paragraph breaks.
+    Primary: Gemma 4. Fallback: Gemini flash.
+    """
     if not gemini_client:
         return transcript  # Return original if no client
 
     prompt = build_retouch_prompt()
     contents = [prompt, transcript]
 
+    from google.genai import types
+
+    # 1. Try Gemma 4 (primary)
+    try:
+        log("GEMMA", f"Requesting retouch ({len(transcript)} chars) with {GEMMA_MODEL}...")
+        response = await asyncio.to_thread(
+            gemini_client.models.generate_content,
+            model=GEMMA_MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(temperature=0.3),
+        )
+        log("GEMMA", f"Retouch received ({len(response.text)} chars)")
+        return response.text
+    except Exception as e:
+        log("GEMMA", f"Gemma retouch failed: {e}, falling back to Gemini...")
+
+    # 2. Fallback to Gemini flash
     try:
         log("GEMINI", f"Requesting retouch ({len(transcript)} chars) with {GEMINI_MODEL}...")
         response = await asyncio.to_thread(
@@ -131,10 +169,10 @@ async def retouch_transcript(transcript: str, gemini_client) -> str:
             model=GEMINI_MODEL,
             contents=contents
         )
-        log("GEMINI", f"Retouch received ({len(response.text)} chars)")
+        log("GEMINI", f"Fallback retouch received ({len(response.text)} chars)")
         return response.text
     except Exception as e:
-        log("ERROR", f"Gemini retouch failed: {e}")
+        log("ERROR", f"Gemini fallback retouch also failed: {e}")
         return transcript  # Return original on error
 
 

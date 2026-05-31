@@ -1,9 +1,9 @@
-# 👨‍🍳 WokBot: Your AI Transcription Chef
+# 👨‍🍳 WokBot: Your Field Journalist's AI Assistant
 
 [![Google Colab](https://img.shields.io/badge/Run%20on-Google%20Colab-orange?logo=googlecolab)](https://colab.research.google.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**WokBot** is not just a tool; it's a premium service for your audio, video, and image files. Powered by **OpenAI Whisper** for world-class transcription, **Google Gemini** for intelligent summarization, and **Gemma 4** for AI-powered image color correction, WokBot delivers results with the speed and precision of a master chef.
+**WokBot** is an AI assistant for field journalists who need fast transcription, instant summaries, and automatic photo color correction — all from Telegram. Powered by **OpenAI Whisper** for accurate transcription, **Google Gemini** for smart summarization, and **Gemma 4** for AI-powered image color correction.
 
 ---
 
@@ -55,10 +55,10 @@ Forget waiting for heavy AI models to load. WokBot uses a **Microservice-style S
 | **🚀 Instant Response** | Micro-startup logic ensures the bot is always ready in **~20 seconds**. |
 | **🔥 Unlimited Power** | Runs **OpenAI Whisper** (`large-v2`) locally on Colab's T4 GPU. No duration limits. |
 | **🌩️ Cloud Fallback** | No GPU? No problem. WokBot seamlessly switches to **Gemini API** for CPU environments. |
-| **🧠 Smart Summary** | Get the gist instantly with **Gemini 2.5 Flash** summarizing into key points. |
+| **🧠 Smart Summary** | Journalist-style summaries in Indonesian with **Gemini 2.5 Flash**. |
 | **🎨 Image Color Correction** | AI-powered photo editing using **Gemma 4** - automatic white balance, exposure, and color grading. |
-| **📂 Any Format** | Audio, video, images, multi-part ZIPs—WokBot handles it all with professional grace. |
-| **👨‍🍳 Chef Persona** | Real-time status updates: *Wok is heating up... Cooking your file... Order ready!* |
+| **📂 Any Format** | Audio, video, images, multi-part ZIPs — WokBot handles it all. |
+| **📱 Telegram First** | Send files from your phone, get results back on Telegram — perfect for field journalists. |
 
 ---
 
@@ -96,4 +96,4 @@ python start.py
 
 ---
 
-*”Transcription is a dish best served fast, and images deserve a perfect color grade.”* 👨‍🍳✨
+*”Fast transcription, instant summaries, color-corrected photos — for field journalists who need results now.”* 👨‍🍳✨

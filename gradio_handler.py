@@ -1,4 +1,4 @@
-# 🌐 Gradio Web Handler for TTB
+# 🌐 Gradio Web Handler for WokBot
 # ------------------------------------------------------------------------------
 # Module for handling large file uploads (>2GB) via Gradio web interface.
 # This bypasses Telegram's 20MB file size limit.
@@ -139,7 +139,7 @@ def create_gradio_interface() -> Optional["gr.Blocks"]:
         return None
     
     with gr.Blocks(
-        title="TTB - Transcription Bot",
+        title="WokBot - Transcription Chef",
         theme=gr.themes.Soft(primary_hue="blue", spacing_size="sm", radius_size="md"),
         css="""
         .gradio-container { max-width: 100% !important; padding: 10px !important; }
@@ -154,7 +154,7 @@ def create_gradio_interface() -> Optional["gr.Blocks"]:
     ) as app:
         gr.Markdown(
             """
-            # 🎙️ TTB Web Buffet
+            # 🎙️ WokBot Web Buffet
             
             Upload large audio/video files (>20MB) easily from your mobile or desktop. 
             Results will be served directly to your Telegram.

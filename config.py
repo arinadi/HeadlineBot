@@ -73,3 +73,10 @@ class Config:
     
     # Shutdown: Minutes of idleness before killing runtime.
     IDLE_SHUTDOWN_MINUTES = int(os.getenv('IDLE_SHUTDOWN_MINUTES', 10))
+
+    # --- Image Editing Settings ---
+    # Model: Gemma model for image analysis
+    GEMMA_MODEL = os.getenv('GEMMA_MODEL', 'models/gemma-4-26b-a4b-it')
+
+    # JPEG Quality: Output quality for edited images (1-100)
+    JPEG_QUALITY = int(os.getenv('JPEG_QUALITY', 95))

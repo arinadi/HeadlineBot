@@ -13,18 +13,20 @@ import os
 import asyncio
 import gc
 import time
+import uuid
 from typing import Optional
 
 # --- Local Imports ---
 import config
 from config import Config
 from utils import (
-    summarize_text, 
-    format_duration, 
-    log, 
+    summarize_text,
+    format_duration,
+    log,
     get_runtime
 )
 from bot_classes import TranscriptionJob, IdleMonitor, JobManager, FilesHandler
+from image_editor import edit_image, is_image_file
 
 # --- Transcription Mode ---
 MODE = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')
@@ -92,6 +94,8 @@ if not GEMINI_API_KEY:
 # Constants
 TRANSCRIPT_FILENAME_PREFIX = "TS"
 SUMMARY_FILENAME_PREFIX = "AI"
+IMAGE_OUTPUT_FOLDER = 'edited_images'
+os.makedirs(IMAGE_OUTPUT_FOLDER, exist_ok=True)
 
 # ------------------------------------------------------------------------------
 # SECTION 2: ENVIRONMENT SETUP
@@ -187,8 +191,8 @@ async def initialize_models_background():
         if SHUTDOWN_IN_PROGRESS: return
 
         # Acknowledge the kitchen is heating up
-        kitchen_status = "🍳 *Kitchen is heating up...*" if MODE == 'WHISPER' else "🥪 *Preparing snacks...*"
-        await send_telegram_notification(application, f"{kitchen_status}\nBot is ready to take orders. AI engine will be ready shortly.")
+        kitchen_status = "🍳 *Wok is heating up...*" if MODE == 'WHISPER' else "🥪 *Preparing ingredients...*"
+        await send_telegram_notification(application, f"{kitchen_status}\nWokBot is ready to take orders. AI engine will be ready shortly.")
 
         if MODE == 'WHISPER':
             if SHUTDOWN_IN_PROGRESS: return
@@ -296,12 +300,86 @@ async def initialize_models_background():
         await update_startup_message()
         await send_telegram_notification(application, "🛎️ *Kitchen is now open!* All AI systems are ready to process your orders.")
 
+async def handle_image_edit(local_path: str, filename: str, message: telegram.Message):
+    """Callback for processing image files with Gemma 4 color correction."""
+    if not gemini_client:
+        await message.reply_text(
+            "🖼️ *Image Editing Unavailable*\n\n"
+            "GEMINI_API_KEY is required for AI-powered color correction.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        if os.path.exists(local_path):
+            os.remove(local_path)
+        return
+
+    try:
+        # Send processing message
+        status_msg = await message.reply_text(
+            f"🎨 *Analyzing image...*\n`{filename}`\n\nGemma 4 is examining colors and lighting...",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+        # Generate output path
+        base_name = os.path.splitext(filename)[0]
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in ('.jpg', '.jpeg'):
+            ext = '.jpg'  # Output as JPEG for consistency
+        output_filename = f"edited_{base_name}{ext}"
+        output_path = os.path.join(IMAGE_OUTPUT_FOLDER, f"{uuid.uuid4().hex}_{output_filename}")
+
+        # Process image
+        result = await edit_image(local_path, output_path, gemini_client)
+
+        if result["status"] == "success":
+            params = result["params"]
+            diagnosis = params.get("description", "Color corrected")
+
+            # Update status message
+            await status_msg.edit_text(
+                f"✅ *Image Edited!*\n`{filename}`\n\n"
+                f"📝 *Diagnosis:* {diagnosis}\n"
+                f"🔧 *Adjustments:* Brightness `{params.get('brightness', 0)}`, "
+                f"Contrast `{params.get('contrast', 1.0)}`, "
+                f"Saturation `{params.get('saturation', 1.0)}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+            # Send edited image
+            with open(output_path, 'rb') as img_file:
+                await message.reply_photo(
+                    photo=img_file,
+                    caption=f"🎨 *Color Corrected*\n{diagnosis}",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_to_message_id=message.message_id
+                )
+        else:
+            await status_msg.edit_text(
+                f"❌ *Image Edit Failed*\n`{filename}`\n\nError: {result.get('error', 'Unknown')}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
     except Exception as e:
-        if SHUTDOWN_IN_PROGRESS: return
-        log("ERROR", f"Initialization failed: {e}")
-        # Wrap error in code block to avoid Markdown parsing issues
-        await send_telegram_notification(application, f"❌ *FATAL:* Initialization failed:\n`{str(e)}`")
-        await perform_shutdown("AI Model Loading Failed")
+        log("IMAGE", f"Image edit handler error: {e}")
+        try:
+            await message.reply_text(
+                f"❌ *Image Processing Error*\n`{filename}`\n\n`{str(e)[:200]}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception:
+            pass
+    finally:
+        # Cleanup
+        if os.path.exists(local_path):
+            try:
+                os.remove(local_path)
+            except Exception:
+                pass
+        if 'output_path' in locals() and os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except Exception:
+                pass
+
 
 async def initialize_gradio_background():
     """Launches Gradio web server in background and notifies Telegram with pinned URL."""
@@ -357,8 +435,8 @@ async def update_startup_message(gradio_url: str = None):
     gradio_text = f"🌐 *Web UI:* {gradio_url}\n" if gradio_url else ""
     
     msg_text = (
-        f"🤵 *Welcome to TTB Restaurant*\n"
-        f"I am your host. Feel free to send your audio/video files anytime.\n\n"
+        f"👨‍🍳 *Welcome to WokBot*\n"
+        f"I am your chef. Feel free to send your audio/video files anytime.\n\n"
         f"🛠️ *Equipment:* `{hardware_label}`\n"
         f"🤖 *AI Engine:* `{'Gemini Cloud' if MODE == 'GEMINI' else WHISPER_MODEL}`\n"
         f"📢 *Status:* {ai_status}\n"
@@ -664,8 +742,8 @@ async def main():
         mode_icon = "🌩️" if MODE == 'GEMINI' else "🔥"
         hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
         startup_text = (
-            f"🤵 *Welcome to TTB Restaurant*\n"
-            f"I am your host. Feel free to send your audio/video files anytime.\n\n"
+            f"👨‍🍳 *Welcome to WokBot*\n"
+            f"I am your chef. Feel free to send your audio/video files anytime.\n\n"
             f"🛠️ *Equipment:* `{hardware_label}`\n"
             f"🤖 *AI Engine:* `{'Gemini Cloud' if MODE == 'GEMINI' else WHISPER_MODEL}`\n"
             f"📢 *Status:* ⏳ Preparing...\n\n"
@@ -689,7 +767,7 @@ async def main():
     idle_monitor = IdleMonitor(application, None, perform_shutdown)
     job_manager = JobManager(application, idle_monitor, models_ready_event)
     idle_monitor.job_manager = job_manager
-    files_handler = FilesHandler(job_manager, UPLOAD_FOLDER)
+    files_handler = FilesHandler(job_manager, UPLOAD_FOLDER, image_callback=handle_image_edit)
     
     # Filter for approved chat only
     chat_filter = filters.Chat(chat_id=TELEGRAM_CHAT_ID)

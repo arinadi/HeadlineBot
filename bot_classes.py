@@ -19,6 +19,9 @@ import ffmpeg
 from config import Config, TELEGRAM_CHAT_ID
 from utils import log
 
+# Image file extensions
+IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'}
+
 
 @dataclass
 class TranscriptionJob:
@@ -247,12 +250,19 @@ class FilesHandler:
     """Handles all incoming file attachments, including multi-part ZIP archives."""
     COMBINE_TIMEOUT_SECONDS = 30
 
-    def __init__(self, job_manager: JobManager, upload_folder: str):
+    def __init__(self, job_manager: JobManager, upload_folder: str, image_callback=None):
         self.job_manager = job_manager
         self.upload_folder = upload_folder
-        self.multipart_archives = {} 
+        self.multipart_archives = {}
         self.multipart_pattern = re.compile(r'(.+)\.(zip|z)\.(\d{2,3})$', re.IGNORECASE)
+        self.image_callback = image_callback  # Callback for image processing
         print("✅ FilesHandler initialized with multi-part ZIP support.")
+
+    @staticmethod
+    def is_image_file(filename: str) -> bool:
+        """Check if filename is a supported image file."""
+        ext = os.path.splitext(filename)[1].lower()
+        return ext in IMAGE_EXTENSIONS
 
     async def _validate_and_queue_file(self, local_path: str, message: telegram.Message, filename_override: str = None):
         try:
@@ -312,6 +322,19 @@ class FilesHandler:
 
         file_obj = await attachment.get_file()
         original_filename = getattr(attachment, 'file_name', None) or f"file_{int(time.time())}"
+
+        # Check if this is an image file
+        if self.is_image_file(original_filename):
+            if self.image_callback:
+                local_path = os.path.join(self.upload_folder, f"{uuid.uuid4().hex}_{secure_filename(original_filename)}")
+                await file_obj.download_to_drive(local_path)
+                await self.image_callback(local_path, original_filename, message)
+            else:
+                await message.reply_text(
+                    "🖼️ Image editing is not configured. Please set GEMINI_API_KEY to enable this feature.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            return
 
         multipart_match = self.multipart_pattern.match(original_filename)
         if multipart_match:

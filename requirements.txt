@@ -4,3 +4,5 @@ faster-whisper
 google-genai
 gradio>=4.0.0
 nest_asyncio
+opencv-python-headless
+Pillow

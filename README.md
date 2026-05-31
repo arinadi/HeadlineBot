@@ -1,4 +1,4 @@
-# 👨‍🍳 WokBot: Your Field Journalist's AI Assistant
+# 👨‍🍳 WokBot: Fast AI Bot for Front Journalists
 
 [![Google Colab](https://img.shields.io/badge/Run%20on-Google%20Colab-orange?logo=googlecolab)](https://colab.research.google.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

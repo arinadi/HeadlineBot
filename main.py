@@ -28,7 +28,8 @@ from utils import (
 )
 from bot_classes import TranscriptionJob, IdleMonitor, JobManager, FilesHandler
 from image_editor import edit_image, is_image_file
-from model_manager import discover_models, set_model_chains
+from model_manager import discover_models
+from utils import set_model_chains
 
 # --- Transcription Mode ---
 MODE = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')

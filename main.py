@@ -453,7 +453,7 @@ async def _process_image_job(job: Job, _start_time: float):
             params = result["params"]
             diagnosis = params.get("description", "Color corrected")
             with open(output_path, 'rb') as img_file:
-                await application.bot.reply_photo(job._original_message, photo=img_file, caption=f"🎨 *{diagnosis}*")
+                await job._original_message.reply_photo(photo=img_file, caption=f"🎨 *{diagnosis}*")
             log("JOB", f"[{job.job_id}] Image edited: {diagnosis}")
         else:
             # Fallback: send original

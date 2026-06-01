@@ -351,10 +351,11 @@ def gray_world_wb(img: np.ndarray, strength: float = 0.5) -> np.ndarray:
 # ─────────────────────────────────────────────────
 def quality_guard(original: np.ndarray, result: np.ndarray) -> bool:
     """Return True if edit worsens the photo significantly."""
-    # Check highlight clipping
+    # Check highlight clipping — higher threshold to avoid false positives
+    # on lowlight/backlight photos where shadow lift is expected
     clip_before = np.mean(original > 250)
     clip_after = np.mean(result > 250)
-    if clip_after > clip_before + 0.05:
+    if clip_after > clip_before + 0.15 and clip_after > 0.30:
         log("IMAGE", f"Quality guard: highlight clip worse ({clip_before:.3f} → {clip_after:.3f})")
         return True
 

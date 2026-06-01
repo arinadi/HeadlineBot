@@ -1,6 +1,6 @@
 {
-  "version": "1.0",
-  "description": "Photo colorize preset library — LLM + OpenCV pipeline",
+  "version": "2.0",
+  "description": "Photo colorize preset library — Vivid edition",
   "parameter_defaults": {
     "b": 0, "c": 1.0, "s": 1.0, "v": 1.0, "h": 0,
     "d": 0, "k": 0, "n": 0, "w": 0, "t": 0, "p": 1.0, "l": 0
@@ -26,8 +26,8 @@
     "NIGHT", "HAZE"
   ],
   "parameter_locks": {
-    "BACKLIGHT":    { "c": [0.90, 1.05], "d_min": 30, "h_max": -25 },
-    "GREEN_SPILL":  { "t": [10, 28], "s_max": 0.95 },
+    "BACKLIGHT":    { "d_min": 30, "h_max": -30 },
+    "GREEN_SPILL":  { "t": [10, 28], "s_max": 1.0 },
     "LOWLIGHT":     { "b_min": 15, "d_min": 20, "c_min": 1.0 },
     "PORTRAIT":     { "l": [-8, -15], "p": [0.8, 0.95], "v_max": 1.2 },
     "SKIN_ANY":     { "v_max": 1.3, "s_max": 1.2 }
@@ -38,9 +38,9 @@
       "condition": "Siang hari di luar ruangan, pencahayaan alami merata",
       "tags": ["outdoor", "natural", "baseline"],
       "params": {
-        "b": 0, "c": 1.15, "s": 1.2, "v": 1.25, "h": 0,
-        "d": 0, "k": -5, "n": 5, "w": 5, "t": 0, "p": 1.05, "l": 8,
-        "x": "Vibrant daylight, punchy colors and contrast"
+        "b": 0, "c": 1.2, "s": 1.3, "v": 1.35, "h": 0,
+        "d": 5, "k": -8, "n": 8, "w": 5, "t": 0, "p": 1.05, "l": 10,
+        "x": "Vibrant daylight, punchy colors"
       }
     },
     "OVERCAST": {
@@ -48,43 +48,43 @@
       "condition": "Langit mendung, cahaya flat, tidak ada bayangan keras",
       "tags": ["outdoor", "cloudy", "flat-light"],
       "params": {
-        "b": 5, "c": 1.2, "s": 1.2, "v": 1.2, "h": 0,
-        "d": 8, "k": -5, "n": 5, "w": 8, "t": 0, "p": 1.1, "l": 10,
-        "x": "Overcast, punchy contrast and vivid colors"
+        "b": 5, "c": 1.25, "s": 1.3, "v": 1.3, "h": 0,
+        "d": 10, "k": -8, "n": 8, "w": 10, "t": 0, "p": 1.15, "l": 12,
+        "x": "Overcast, vivid punch through clouds"
       }
     },
     "LOWLIGHT": {
       "name": "Low-Light Indoor",
       "condition": "Dalam ruangan cahaya redup, lampu incandescent/tungsten",
       "tags": ["indoor", "dark", "tungsten"],
-      "notes": "Boost saturation & contrast untuk warna vivid. Jangan buat abu-abu.",
+      "notes": "Vivid warm tones, deep blacks, lifted shadows.",
       "params": {
-        "b": 25, "c": 1.2, "s": 1.15, "v": 1.2, "h": -10,
-        "d": 35, "k": -15, "n": 10, "w": 5, "t": 5, "p": 1.1, "l": 10,
-        "x": "Low light, vivid warm tones, deep blacks, lifted shadows"
+        "b": 25, "c": 1.25, "s": 1.25, "v": 1.3, "h": -10,
+        "d": 40, "k": -18, "n": 12, "w": 8, "t": 5, "p": 1.15, "l": 12,
+        "x": "Low light, vivid warm tones, deep contrast"
       }
     },
     "BACKLIGHT": {
       "name": "Backlight/Contre-Jour",
       "condition": "Sumber cahaya di belakang subjek, background terang",
       "tags": ["backlight", "contre-jour", "high-DR"],
-      "notes": "Extreme: silhouette subjek, pertajam background color zones. c tinggi untuk drama.",
+      "notes": "Extreme silhouette, vivid background colors, deep drama.",
       "locks": { "d_min": 30, "h_max": -30 },
       "params": {
-        "b": 10, "c": 1.25, "s": 1.3, "v": 1.2, "h": -50,
-        "d": 50, "k": -15, "n": 5, "w": 10, "t": 0, "p": 1.15, "l": 12,
-        "x": "Silhouette backlight, vivid background colors, deep contrast"
+        "b": 10, "c": 1.3, "s": 1.35, "v": 1.25, "h": -55,
+        "d": 55, "k": -18, "n": 5, "w": 12, "t": 0, "p": 1.2, "l": 15,
+        "x": "Silhouette backlight, vivid colors, deep drama"
       }
     },
     "GOLDEN_HR": {
       "name": "Golden Hour",
       "condition": "Matahari terbenam/terbit, cahaya keemasan hangat",
       "tags": ["outdoor", "warm", "sunset", "sunrise"],
-      "notes": "Pertahankan warmth — ini intended look. s sedikit turun agar skin tidak oranye.",
+      "notes": "Rich golden tones, preserve warmth as intended look.",
       "params": {
-        "b": -5, "c": 1.1, "s": 0.95, "v": 1.05, "h": -20,
-        "d": 15, "k": -5, "n": 0, "w": 15, "t": -5, "p": 1.0, "l": 10,
-        "x": "Golden hour, preserve warmth, recover highlights"
+        "b": -3, "c": 1.2, "s": 1.15, "v": 1.2, "h": -20,
+        "d": 15, "k": -8, "n": 5, "w": 18, "t": -5, "p": 1.05, "l": 12,
+        "x": "Golden hour, rich warm tones, vivid sunset"
       }
     },
     "HIGH_KEY": {
@@ -92,9 +92,9 @@
       "condition": "Studio dengan lighting terang merata, background putih/abu",
       "tags": ["studio", "bright", "high-key"],
       "params": {
-        "b": -10, "c": 1.1, "s": 1.0, "v": 1.05, "h": -30,
-        "d": 10, "k": -5, "n": 5, "w": 0, "t": 0, "p": 1.05, "l": 8,
-        "x": "High-key studio, highlight recovery, maintain contrast"
+        "b": -8, "c": 1.15, "s": 1.15, "v": 1.2, "h": -30,
+        "d": 10, "k": -8, "n": 8, "w": 5, "t": 0, "p": 1.1, "l": 10,
+        "x": "High-key, clean contrast, vivid tones"
       }
     },
     "BLUE_SKY_SPILL": {
@@ -102,54 +102,54 @@
       "condition": "Outdoor langit biru cerah, bayangan terasa kebiruan",
       "tags": ["outdoor", "blue-cast", "spill"],
       "params": {
-        "b": 0, "c": 1.05, "s": 1.0, "v": 1.1, "h": 0,
-        "d": 10, "k": 0, "n": 0, "w": 10, "t": 5, "p": 1.0, "l": 5,
-        "x": "Blue sky spill, warm shadows, neutral skin"
+        "b": 0, "c": 1.15, "s": 1.2, "v": 1.25, "h": 0,
+        "d": 10, "k": -5, "n": 5, "w": 12, "t": 5, "p": 1.05, "l": 8,
+        "x": "Blue spill corrected, warm vivid shadows"
       }
     },
     "GREEN_SPILL": {
       "name": "Green Wall/Ceiling Spill",
       "condition": "Dinding/plafon hijau memantul ke skin dan subjek",
       "tags": ["indoor", "green-spill", "studio", "color-cast"],
-      "notes": "JANGAN over-correct. t hanya cancel spill, bukan shift entire image. Cek skin tone setelah koreksi.",
-      "locks": { "t": [10, 28], "s_max": 0.95, "w": [5, 10] },
+      "notes": "Cancel spill with magenta tint. Keep skin natural.",
+      "locks": { "t": [10, 28], "s_max": 1.0, "w": [5, 12] },
       "params": {
-        "b": 0, "c": 1.0, "s": 0.92, "v": 1.05, "h": 0,
-        "d": 5, "k": 0, "n": 0, "w": 7, "t": 20, "p": 1.0, "l": 0,
-        "x": "Green wall spill, magenta tint correction, skin safe"
+        "b": 0, "c": 1.15, "s": 0.98, "v": 1.15, "h": 0,
+        "d": 5, "k": -5, "n": 5, "w": 8, "t": 22, "p": 1.0, "l": 5,
+        "x": "Green spill cancelled, vivid corrected tones"
       }
     },
     "GREEN_CAST": {
       "name": "LED/Fluorescent Green Cast",
-      "condition": "Lampu LED/fluorescent, seluruh gambar hijau",
+      "condition": "Lampu LED atau fluorescent, seluruh gambar terlihat hijau",
       "tags": ["indoor", "led", "fluorescent", "green-cast"],
-      "notes": "Berbeda dari GREEN_SPILL: seluruh gambar affected. t negatif (ke hijau di tint scale = counter hijau).",
+      "notes": "Global green cast correction.",
       "params": {
-        "b": 5, "c": 1.05, "s": 0.9, "v": 1.0, "h": 0,
-        "d": 10, "k": 0, "n": 0, "w": 8, "t": -20, "p": 1.0, "l": 0,
-        "x": "LED green cast, global tint and warmth correction"
+        "b": 5, "c": 1.2, "s": 1.15, "v": 1.2, "h": 0,
+        "d": 10, "k": -8, "n": 5, "w": 10, "t": -22, "p": 1.05, "l": 5,
+        "x": "Green cast removed, vivid natural tones"
       }
     },
     "NEON": {
       "name": "Neon/Mixed Artificial Light",
       "condition": "Lingkungan neon, multiple color source, bar/club/event",
       "tags": ["indoor", "neon", "mixed-light", "night"],
-      "notes": "Jangan coba koreksi ke neutral. Pertahankan mood. k:-15 untuk deep blacks.",
+      "notes": "Preserve neon mood, boost contrast and deep blacks.",
       "params": {
-        "b": 5, "c": 1.2, "s": 0.85, "v": 1.0, "h": -10,
-        "d": 20, "k": -15, "n": 0, "w": 0, "t": 0, "p": 1.1, "l": 15,
-        "x": "Mixed neon light, mood preserve, contrast boost"
+        "b": 5, "c": 1.3, "s": 1.1, "v": 1.15, "h": -10,
+        "d": 20, "k": -20, "n": 0, "w": 0, "t": 0, "p": 1.15, "l": 18,
+        "x": "Neon vivid, deep blacks, dramatic contrast"
       }
     },
     "SKIN_WARM": {
       "name": "Skin Oversaturated/Orange",
       "condition": "Kulit terlalu oranye atau merah, tidak natural",
       "tags": ["skin-tone", "correction", "orange-skin"],
-      "notes": "Skin tone limits: v <= 1.3, s <= 1.2 (wajib dipatuhi di semua kondisi).",
+      "notes": "Correct orange skin while keeping rest vivid.",
       "params": {
-        "b": 0, "c": 1.0, "s": 0.88, "v": 0.95, "h": -5,
-        "d": 0, "k": 0, "n": 0, "w": -5, "t": 8, "p": 1.0, "l": -5,
-        "x": "Skin oversaturated, reduce sat and warmth"
+        "b": 0, "c": 1.1, "s": 0.9, "v": 0.95, "h": -5,
+        "d": 0, "k": -5, "n": 5, "w": -5, "t": 10, "p": 1.0, "l": -5,
+        "x": "Orange skin corrected, rest vivid"
       }
     },
     "SKIN_PALE": {
@@ -157,21 +157,21 @@
       "condition": "Kulit terlihat pucat, kebiruan, atau abu-abu",
       "tags": ["skin-tone", "correction", "pale-skin"],
       "params": {
-        "b": 5, "c": 1.05, "s": 1.05, "v": 1.2, "h": 0,
-        "d": 5, "k": 0, "n": 0, "w": 15, "t": -5, "p": 1.0, "l": 0,
-        "x": "Pale skin, boost warmth and vibrance gently"
+        "b": 5, "c": 1.15, "s": 1.2, "v": 1.3, "h": 0,
+        "d": 5, "k": -5, "n": 5, "w": 18, "t": -5, "p": 1.05, "l": 5,
+        "x": "Pale skin warmed, vivid healthy tones"
       }
     },
     "PORTRAIT": {
       "name": "Portrait Skin Soften",
       "condition": "Portrait wajah close-up, ingin skin halus dan flattering",
       "tags": ["portrait", "skin-soften", "close-up"],
-      "notes": "l negatif adalah fitur utama. l < -15 mulai terlihat buatan.",
+      "notes": "Negative clarity for soft skin, keep colors vivid.",
       "locks": { "l": [-8, -15], "p": [0.8, 0.95], "v_max": 1.2 },
       "params": {
-        "b": 5, "c": 1.0, "s": 1.0, "v": 1.15, "h": 0,
-        "d": 8, "k": 0, "n": 5, "w": 5, "t": 0, "p": 0.85, "l": -12,
-        "x": "Portrait soft skin, negative clarity, vibrance boost"
+        "b": 5, "c": 1.1, "s": 1.15, "v": 1.2, "h": 0,
+        "d": 8, "k": -5, "n": 5, "w": 8, "t": 0, "p": 0.9, "l": -12,
+        "x": "Portrait soft skin, vivid flattering colors"
       }
     },
     "WINDOW_LIGHT": {
@@ -179,31 +179,31 @@
       "condition": "Cahaya dari jendela satu arah, bayangan satu sisi",
       "tags": ["indoor", "natural", "window", "directional"],
       "params": {
-        "b": 5, "c": 1.1, "s": 1.05, "v": 1.1, "h": 0,
-        "d": 20, "k": 0, "n": 0, "w": 8, "t": 0, "p": 1.0, "l": 8,
-        "x": "Window light, lift directional shadows, warm slightly"
+        "b": 5, "c": 1.2, "s": 1.2, "v": 1.25, "h": 0,
+        "d": 22, "k": -8, "n": 5, "w": 10, "t": 0, "p": 1.1, "l": 10,
+        "x": "Window light, vivid directional shadows"
       }
     },
     "NIGHT": {
       "name": "Malam/Night Photography",
       "condition": "Foto malam outdoor, campuran sumber cahaya artifisial",
       "tags": ["outdoor", "night", "dark", "mixed-light"],
-      "notes": "d jangan lebih +30 jika ada langit hitam pekat. p rendah untuk menekan noise.",
+      "notes": "Vivid night colors, deep blacks, careful noise management.",
       "params": {
-        "b": 20, "c": 1.15, "s": 0.9, "v": 1.05, "h": -15,
-        "d": 25, "k": -20, "n": 15, "w": 0, "t": 0, "p": 0.9, "l": 5,
-        "x": "Night photo, preserve mood, careful shadow lift"
+        "b": 20, "c": 1.25, "s": 1.15, "v": 1.2, "h": -15,
+        "d": 28, "k": -25, "n": 18, "w": 5, "t": 0, "p": 0.95, "l": 8,
+        "x": "Night vivid, deep blacks, neon colors pop"
       }
     },
     "HAZE": {
       "name": "Hazy/Foggy Outdoor",
       "condition": "Kabut atau haze di outdoor, warna flat dan pucat",
       "tags": ["outdoor", "haze", "fog", "flat"],
-      "notes": "k negatif agresif untuk mengembalikan blacks yang terangkat oleh haze.",
+      "notes": "Aggressive dehaze, deep blacks, vivid colors.",
       "params": {
-        "b": 0, "c": 1.2, "s": 1.2, "v": 1.2, "h": 0,
-        "d": 0, "k": -25, "n": 10, "w": 5, "t": 0, "p": 1.1, "l": 20,
-        "x": "Haze/fog, deep blacks, contrast and saturation boost"
+        "b": 0, "c": 1.3, "s": 1.35, "v": 1.3, "h": 0,
+        "d": 0, "k": -30, "n": 12, "w": 5, "t": 0, "p": 1.15, "l": 22,
+        "x": "Haze cleared, vivid deep colors"
       }
     }
   }

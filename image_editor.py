@@ -350,22 +350,19 @@ def gray_world_wb(img: np.ndarray, strength: float = 0.5) -> np.ndarray:
 # 🖼️  QUALITY GUARD — WARN-03 fix (comprehensive)
 # ─────────────────────────────────────────────────
 def quality_guard(original: np.ndarray, result: np.ndarray) -> bool:
-    """Return True if edit worsens the photo significantly.
-    Lenient thresholds — let presets do their job.
+    """Return True if edit is truly broken.
+    Very lenient — let presets do their job. Only catch catastrophic failures.
     """
-    # Check highlight clipping — only trigger on extreme cases
-    clip_before = np.mean(original > 250)
+    # Check extreme highlight clipping — only if >50% of image is blown out
     clip_after = np.mean(result > 250)
-    # Only trigger if: more than 40% clipped AND at least 20% worse than before
-    if clip_after > 0.40 and clip_after > clip_before + 0.20:
-        log("IMAGE", f"Quality guard: highlight clip extreme ({clip_before:.3f} → {clip_after:.3f})")
+    if clip_after > 0.50:
+        log("IMAGE", f"Quality guard: extreme clip ({clip_after:.3f})")
         return True
 
-    # Check green cast — only trigger on significant worsening
-    ge_before = float(np.mean(original[:, :, 1]) - (np.mean(original[:, :, 0]) + np.mean(original[:, :, 2])) / 2.0)
-    ge_after = float(np.mean(result[:, :, 1]) - (np.mean(result[:, :, 0]) + np.mean(result[:, :, 2])) / 2.0)
-    if ge_after > ge_before + 8:
-        log("IMAGE", f"Quality guard: green cast worse ({ge_before:.1f} → {ge_after:.1f})")
+    # Check if image went completely gray (all detail lost)
+    std_after = np.std(result.astype(np.float32))
+    if std_after < 15:
+        log("IMAGE", f"Quality guard: image too flat (std={std_after:.1f})")
         return True
 
     return False

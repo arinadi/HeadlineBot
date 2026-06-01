@@ -153,9 +153,9 @@ async def discover_models(gemini_client) -> dict:
         log("MODEL", f"Transcript primary: {transcript_chain['primary']}")
         log("MODEL", f"Summary/Retouch/Photo primary: {gemma_chain['primary']}")
         if transcript_chain['fallbacks']:
-            log("MODEL", f"Transcript fallbacks: {len(transcript_chain['fallbacks'])} models")
+            log("MODEL", f"Transcript fallbacks ({len(transcript_chain['fallbacks'])}): {', '.join(transcript_chain['fallbacks'][:5])}{'...' if len(transcript_chain['fallbacks']) > 5 else ''}")
         if gemma_chain['fallbacks']:
-            log("MODEL", f"Gemma fallbacks: {len(gemma_chain['fallbacks'])} models")
+            log("MODEL", f"Gemma fallbacks ({len(gemma_chain['fallbacks'])}): {', '.join(gemma_chain['fallbacks'][:5])}{'...' if len(gemma_chain['fallbacks']) > 5 else ''}")
 
         return result
 

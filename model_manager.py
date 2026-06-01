@@ -182,8 +182,6 @@ async def try_model_chain(
     Try models in chain order (primary → fallbacks).
     Returns first successful response, or None if all fail.
     """
-    import asyncio
-
     models_to_try = model_chain.get("all", [])
     if not models_to_try:
         log("ERROR", f"No models available for {task_name}")
@@ -196,10 +194,8 @@ async def try_model_chain(
             if config:
                 kwargs["config"] = config
 
-            # Use asyncio.to_thread for sync generate_content
-            response = await asyncio.to_thread(
-                gemini_client.models.generate_content, **kwargs
-            )
+            # generate_content is async — call directly with await
+            response = await gemini_client.models.generate_content(**kwargs)
 
             if response.text:
                 log("MODEL", f"Success with {model_name} for {task_name}")

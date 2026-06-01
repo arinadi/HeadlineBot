@@ -1,0 +1,210 @@
+{
+  "version": "1.0",
+  "description": "Photo colorize preset library — LLM + OpenCV pipeline",
+  "parameter_defaults": {
+    "b": 0, "c": 1.0, "s": 1.0, "v": 1.0, "h": 0,
+    "d": 0, "k": 0, "n": 0, "w": 0, "t": 0, "p": 1.0, "l": 0
+  },
+  "parameter_ranges": {
+    "b": [-80, 80],
+    "c": [0.6, 2.0],
+    "s": [0.5, 2.0],
+    "v": [0.8, 2.0],
+    "h": [-80, 20],
+    "d": [-20, 80],
+    "k": [-60, 15],
+    "n": [0, 60],
+    "w": [-40, 40],
+    "t": [-30, 30],
+    "p": [0.5, 2.0],
+    "l": [-20, 60]
+  },
+  "condition_codes": [
+    "DAYLIGHT", "OVERCAST", "LOWLIGHT", "BACKLIGHT", "GOLDEN_HR",
+    "HIGH_KEY", "BLUE_SKY_SPILL", "GREEN_SPILL", "GREEN_CAST",
+    "NEON", "SKIN_WARM", "SKIN_PALE", "PORTRAIT", "WINDOW_LIGHT",
+    "NIGHT", "HAZE"
+  ],
+  "parameter_locks": {
+    "BACKLIGHT":    { "c": [0.90, 1.05], "d_min": 30, "h_max": -25 },
+    "GREEN_SPILL":  { "t": [10, 28], "s_max": 0.95 },
+    "LOWLIGHT":     { "b_min": 15, "d_min": 20, "c_min": 1.0 },
+    "PORTRAIT":     { "l": [-8, -15], "p": [0.8, 0.95], "v_max": 1.2 },
+    "SKIN_ANY":     { "v_max": 1.3, "s_max": 1.2 }
+  },
+  "presets": {
+    "DAYLIGHT": {
+      "name": "Natural/Outdoor Day",
+      "condition": "Siang hari di luar ruangan, pencahayaan alami merata",
+      "tags": ["outdoor", "natural", "baseline"],
+      "params": {
+        "b": 0, "c": 1.05, "s": 1.05, "v": 1.1, "h": 0,
+        "d": 0, "k": 0, "n": 0, "w": 0, "t": 0, "p": 1.0, "l": 5,
+        "x": "Balanced daylight, minor vibrance boost"
+      }
+    },
+    "OVERCAST": {
+      "name": "Overcast/Mendung",
+      "condition": "Langit mendung, cahaya flat, tidak ada bayangan keras",
+      "tags": ["outdoor", "cloudy", "flat-light"],
+      "params": {
+        "b": 5, "c": 1.15, "s": 1.1, "v": 1.15, "h": 0,
+        "d": 5, "k": 0, "n": 5, "w": 8, "t": 0, "p": 1.1, "l": 10,
+        "x": "Flat overcast, warm and contrast boost"
+      }
+    },
+    "LOWLIGHT": {
+      "name": "Low-Light Indoor",
+      "condition": "Dalam ruangan cahaya redup, lampu incandescent/tungsten",
+      "tags": ["indoor", "dark", "tungsten"],
+      "notes": "b dan d harus diangkat bersama. c harus >= 1.0 untuk mencegah flat.",
+      "params": {
+        "b": 25, "c": 1.05, "s": 0.95, "v": 1.1, "h": -10,
+        "d": 35, "k": -10, "n": 10, "w": -10, "t": 5, "p": 1.1, "l": 8,
+        "x": "Low light indoor, lift shadows, correct tungsten"
+      }
+    },
+    "BACKLIGHT": {
+      "name": "Backlight/Contre-Jour",
+      "condition": "Sumber cahaya di belakang subjek, background terang",
+      "tags": ["backlight", "contre-jour", "high-DR"],
+      "notes": "JANGAN flatten contrast. c harus 0.90-1.05. d >= +25. h <= -25.",
+      "locks": { "c": [0.90, 1.05], "d_min": 30, "h_max": -25 },
+      "params": {
+        "b": 15, "c": 0.98, "s": 1.0, "v": 1.1, "h": -45,
+        "d": 45, "k": -5, "n": 0, "w": 0, "t": 0, "p": 1.05, "l": 5,
+        "x": "Backlight, lift subject, protect highlights"
+      }
+    },
+    "GOLDEN_HR": {
+      "name": "Golden Hour",
+      "condition": "Matahari terbenam/terbit, cahaya keemasan hangat",
+      "tags": ["outdoor", "warm", "sunset", "sunrise"],
+      "notes": "Pertahankan warmth — ini intended look. s sedikit turun agar skin tidak oranye.",
+      "params": {
+        "b": -5, "c": 1.1, "s": 0.95, "v": 1.05, "h": -20,
+        "d": 15, "k": -5, "n": 0, "w": 15, "t": -5, "p": 1.0, "l": 10,
+        "x": "Golden hour, preserve warmth, recover highlights"
+      }
+    },
+    "HIGH_KEY": {
+      "name": "High-Key Studio",
+      "condition": "Studio dengan lighting terang merata, background putih/abu",
+      "tags": ["studio", "bright", "high-key"],
+      "params": {
+        "b": -10, "c": 1.1, "s": 1.0, "v": 1.05, "h": -30,
+        "d": 10, "k": -5, "n": 5, "w": 0, "t": 0, "p": 1.05, "l": 8,
+        "x": "High-key studio, highlight recovery, maintain contrast"
+      }
+    },
+    "BLUE_SKY_SPILL": {
+      "name": "Blue Sky Color Spill",
+      "condition": "Outdoor langit biru cerah, bayangan terasa kebiruan",
+      "tags": ["outdoor", "blue-cast", "spill"],
+      "params": {
+        "b": 0, "c": 1.05, "s": 1.0, "v": 1.1, "h": 0,
+        "d": 10, "k": 0, "n": 0, "w": 10, "t": 5, "p": 1.0, "l": 5,
+        "x": "Blue sky spill, warm shadows, neutral skin"
+      }
+    },
+    "GREEN_SPILL": {
+      "name": "Green Wall/Ceiling Spill",
+      "condition": "Dinding/plafon hijau memantul ke skin dan subjek",
+      "tags": ["indoor", "green-spill", "studio", "color-cast"],
+      "notes": "JANGAN over-correct. t hanya cancel spill, bukan shift entire image. Cek skin tone setelah koreksi.",
+      "locks": { "t": [10, 28], "s_max": 0.95, "w": [5, 10] },
+      "params": {
+        "b": 0, "c": 1.0, "s": 0.92, "v": 1.05, "h": 0,
+        "d": 5, "k": 0, "n": 0, "w": 7, "t": 20, "p": 1.0, "l": 0,
+        "x": "Green wall spill, magenta tint correction, skin safe"
+      }
+    },
+    "GREEN_CAST": {
+      "name": "LED/Fluorescent Green Cast",
+      "condition": "Lampu LED/fluorescent, seluruh gambar hijau",
+      "tags": ["indoor", "led", "fluorescent", "green-cast"],
+      "notes": "Berbeda dari GREEN_SPILL: seluruh gambar affected. t negatif (ke hijau di tint scale = counter hijau).",
+      "params": {
+        "b": 5, "c": 1.05, "s": 0.9, "v": 1.0, "h": 0,
+        "d": 10, "k": 0, "n": 0, "w": 8, "t": -20, "p": 1.0, "l": 0,
+        "x": "LED green cast, global tint and warmth correction"
+      }
+    },
+    "NEON": {
+      "name": "Neon/Mixed Artificial Light",
+      "condition": "Lingkungan neon, multiple color source, bar/club/event",
+      "tags": ["indoor", "neon", "mixed-light", "night"],
+      "notes": "Jangan coba koreksi ke neutral. Pertahankan mood. k:-15 untuk deep blacks.",
+      "params": {
+        "b": 5, "c": 1.2, "s": 0.85, "v": 1.0, "h": -10,
+        "d": 20, "k": -15, "n": 0, "w": 0, "t": 0, "p": 1.1, "l": 15,
+        "x": "Mixed neon light, mood preserve, contrast boost"
+      }
+    },
+    "SKIN_WARM": {
+      "name": "Skin Oversaturated/Orange",
+      "condition": "Kulit terlalu oranye atau merah, tidak natural",
+      "tags": ["skin-tone", "correction", "orange-skin"],
+      "notes": "Skin tone limits: v <= 1.3, s <= 1.2 (wajib dipatuhi di semua kondisi).",
+      "params": {
+        "b": 0, "c": 1.0, "s": 0.88, "v": 0.95, "h": -5,
+        "d": 0, "k": 0, "n": 0, "w": -5, "t": 8, "p": 1.0, "l": -5,
+        "x": "Skin oversaturated, reduce sat and warmth"
+      }
+    },
+    "SKIN_PALE": {
+      "name": "Skin Pale/Cold",
+      "condition": "Kulit terlihat pucat, kebiruan, atau abu-abu",
+      "tags": ["skin-tone", "correction", "pale-skin"],
+      "params": {
+        "b": 5, "c": 1.05, "s": 1.05, "v": 1.2, "h": 0,
+        "d": 5, "k": 0, "n": 0, "w": 15, "t": -5, "p": 1.0, "l": 0,
+        "x": "Pale skin, boost warmth and vibrance gently"
+      }
+    },
+    "PORTRAIT": {
+      "name": "Portrait Skin Soften",
+      "condition": "Portrait wajah close-up, ingin skin halus dan flattering",
+      "tags": ["portrait", "skin-soften", "close-up"],
+      "notes": "l negatif adalah fitur utama. l < -15 mulai terlihat buatan.",
+      "locks": { "l": [-8, -15], "p": [0.8, 0.95], "v_max": 1.2 },
+      "params": {
+        "b": 5, "c": 1.0, "s": 1.0, "v": 1.15, "h": 0,
+        "d": 8, "k": 0, "n": 5, "w": 5, "t": 0, "p": 0.85, "l": -12,
+        "x": "Portrait soft skin, negative clarity, vibrance boost"
+      }
+    },
+    "WINDOW_LIGHT": {
+      "name": "Indoor Window Light",
+      "condition": "Cahaya dari jendela satu arah, bayangan satu sisi",
+      "tags": ["indoor", "natural", "window", "directional"],
+      "params": {
+        "b": 5, "c": 1.1, "s": 1.05, "v": 1.1, "h": 0,
+        "d": 20, "k": 0, "n": 0, "w": 8, "t": 0, "p": 1.0, "l": 8,
+        "x": "Window light, lift directional shadows, warm slightly"
+      }
+    },
+    "NIGHT": {
+      "name": "Malam/Night Photography",
+      "condition": "Foto malam outdoor, campuran sumber cahaya artifisial",
+      "tags": ["outdoor", "night", "dark", "mixed-light"],
+      "notes": "d jangan lebih +30 jika ada langit hitam pekat. p rendah untuk menekan noise.",
+      "params": {
+        "b": 20, "c": 1.15, "s": 0.9, "v": 1.05, "h": -15,
+        "d": 25, "k": -20, "n": 15, "w": 0, "t": 0, "p": 0.9, "l": 5,
+        "x": "Night photo, preserve mood, careful shadow lift"
+      }
+    },
+    "HAZE": {
+      "name": "Hazy/Foggy Outdoor",
+      "condition": "Kabut atau haze di outdoor, warna flat dan pucat",
+      "tags": ["outdoor", "haze", "fog", "flat"],
+      "notes": "k negatif agresif untuk mengembalikan blacks yang terangkat oleh haze.",
+      "params": {
+        "b": 0, "c": 1.2, "s": 1.2, "v": 1.2, "h": 0,
+        "d": 0, "k": -25, "n": 10, "w": 5, "t": 0, "p": 1.1, "l": 20,
+        "x": "Haze/fog, deep blacks, contrast and saturation boost"
+      }
+    }
+  }
+}

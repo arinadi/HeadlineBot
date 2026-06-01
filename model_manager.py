@@ -139,7 +139,7 @@ async def discover_models(gemini_client) -> dict:
 
         # Build model chains
         transcript_chain = build_model_chain(all_models, "flash", ["flash"])
-        gemma_chain = build_model_chain(all_models, "gemma", ["gemma", "flash"])
+        gemma_chain = build_model_chain(all_models, "gemma", ["gemma"])
 
         result = {
             "transcript": transcript_chain,
@@ -196,10 +196,8 @@ async def try_model_chain(
             if config:
                 kwargs["config"] = config
 
-            # generate_content is SYNC — wrap in asyncio.to_thread
-            response = await asyncio.to_thread(
-                gemini_client.models.generate_content, **kwargs
-            )
+            # generate_content is SYNC — call directly (same as image_editor.py)
+            response = gemini_client.models.generate_content(**kwargs)
 
             if response.text:
                 log("MODEL", f"Success with {model_name} for {task_name}")

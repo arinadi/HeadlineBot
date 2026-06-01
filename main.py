@@ -505,49 +505,50 @@ async def _process_transcript_job(job: Job, start_time: float):
     with open(ts_filepath, 'rb') as ts_file:
         await application.bot.send_document(job.chat_id, document=ts_file, filename=ts_filename, reply_to_message_id=job.message_id)
 
-    # 2. AI Summarization (SM)
+    # 2. AI Summary + Retouch — PARALLEL for speed
     if gemini_client:
-        try:
+        # Run summary and retouch concurrently
+        do_retouch = MODE == 'WHISPER'
+
+        async def _run_summary():
             log("JOB", f"[{job.job_id}] Generating summary...")
-            summary_text = await summarize_text(transcript_text, gemini_client)
+            return await summarize_text(transcript_text, gemini_client)
 
-            if job.status == 'cancelled':
-                raise asyncio.CancelledError("Job cancelled during summarization.")
+        async def _run_retouch():
+            if not do_retouch:
+                return None
+            log("JOB", f"[{job.job_id}] Generating retouch...")
+            return await retouch_transcript(transcript_text, gemini_client)
 
+        results = await asyncio.gather(_run_summary(), _run_retouch(), return_exceptions=True)
+        summary_result, retouch_result = results
+
+        # Send summary
+        if isinstance(summary_result, Exception):
+            log("ERROR", f"Summary failed: {summary_result}")
+            await application.bot.send_message(job.chat_id, f"⚠️ Summary Failed: {summary_result}", reply_to_message_id=job.message_id)
+        elif summary_result:
             su_filename = f"{SUMMARY_FILENAME_PREFIX}_({duration_str.replace(' ', '')})_{safe_name}.txt"
             su_filepath = os.path.join(TRANSCRIPT_FOLDER, su_filename)
             with open(su_filepath, "w", encoding="utf-8") as f:
-                f.write(summary_text)
-
+                f.write(summary_result)
             with open(su_filepath, 'rb') as su_file:
                 await application.bot.send_document(job.chat_id, document=su_file, filename=su_filename, reply_to_message_id=job.message_id)
-
             log("JOB", f"[{job.job_id}] Summary sent.")
-        except Exception as e:
-            log("ERROR", f"Summary failed: {e}")
-            await application.bot.send_message(job.chat_id, f"⚠️ Summary Failed: {e}", reply_to_message_id=job.message_id)
 
-    # 3. Retouch Transcript (RT) - Whisper mode only
-    if gemini_client and MODE == 'WHISPER':
-        try:
-            log("JOB", f"[{job.job_id}] Generating retouch...")
-            retouch_text = await retouch_transcript(transcript_text, gemini_client)
-
-            if job.status == 'cancelled':
-                raise asyncio.CancelledError("Job cancelled during retouch.")
-
-            rt_filename = f"{RETOUCH_FILENAME_PREFIX}_({duration_str.replace(' ', '')})_{safe_name}.txt"
-            rt_filepath = os.path.join(TRANSCRIPT_FOLDER, rt_filename)
-            with open(rt_filepath, "w", encoding="utf-8") as f:
-                f.write(retouch_text)
-
-            with open(rt_filepath, 'rb') as rt_file:
-                await application.bot.send_document(job.chat_id, document=rt_file, filename=rt_filename, reply_to_message_id=job.message_id)
-
-            log("JOB", f"[{job.job_id}] Retouch sent.")
-        except Exception as e:
-            log("ERROR", f"Retouch failed: {e}")
-            await application.bot.send_message(job.chat_id, f"⚠️ Retouch Failed: {e}", reply_to_message_id=job.message_id)
+        # Send retouch
+        if do_retouch:
+            if isinstance(retouch_result, Exception):
+                log("ERROR", f"Retouch failed: {retouch_result}")
+                await application.bot.send_message(job.chat_id, f"⚠️ Retouch Failed: {retouch_result}", reply_to_message_id=job.message_id)
+            elif retouch_result:
+                rt_filename = f"{RETOUCH_FILENAME_PREFIX}_({duration_str.replace(' ', '')})_{safe_name}.txt"
+                rt_filepath = os.path.join(TRANSCRIPT_FOLDER, rt_filename)
+                with open(rt_filepath, "w", encoding="utf-8") as f:
+                    f.write(retouch_result)
+                with open(rt_filepath, 'rb') as rt_file:
+                    await application.bot.send_document(job.chat_id, document=rt_file, filename=rt_filename, reply_to_message_id=job.message_id)
+                log("JOB", f"[{job.job_id}] Retouch sent.")
 
 
 async def queue_processor():

@@ -180,4 +180,17 @@ python start.py
 
 ---
 
+## 🛠️ Development
+
+### Lint (Colab)
+
+```python
+!git clone https://github.com/arinadi/HeadlineBot.git
+%cd HeadlineBot
+!pip install ruff -q
+!ruff check . --output-format=concise
+```
+
+---
+
 **HeadlineBot** — *Your story is breaking. Your AI is ready.* 📰⚡

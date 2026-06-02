@@ -196,6 +196,10 @@ async def try_model_chain(
             if config:
                 kwargs["config"] = config
 
+            # Timeout: 120s per request (high-demand models need buffer)
+            from google.genai import types
+            kwargs["http_options"] = types.HttpOptions(timeout=120_000)
+
             # generate_content is SYNC — call directly (same as image_editor.py)
             response = gemini_client.models.generate_content(**kwargs)
 

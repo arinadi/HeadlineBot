@@ -4,9 +4,38 @@
 # sort by version (newest first), use as primary + fallback chain.
 # ------------------------------------------------------------------------------
 
+import asyncio
 import re
 from typing import List, Optional
 from utils import log
+
+
+# Transient errors that warrant retry before fallback
+_TRANSIENT_ERRORS = (
+    "RESOURCE_EXHAUSTED", "UNAVAILABLE", "DEADLINE_EXCEEDED",
+    "503", "429", "500", "timeout", "deadline exceeded",
+    "rate limit", "quota", "overloaded",
+)
+
+
+def _is_transient_error(error: Exception) -> bool:
+    """Check if an error is transient (retryable)."""
+    msg = str(error).lower()
+    return any(kw in msg for kw in _TRANSIENT_ERRORS)
+
+
+def _check_safety(response) -> str | None:
+    """Check response for safety blocks. Returns error message or None."""
+    if response.text:
+        return None
+    # Check candidates for safety finish reason
+    if hasattr(response, 'candidates') and response.candidates:
+        candidate = response.candidates[0]
+        if hasattr(candidate, 'finish_reason'):
+            reason = str(candidate.finish_reason)
+            if 'SAFETY' in reason or 'BLOCK' in reason:
+                return f"Safety block: {reason}"
+    return "Empty response (no text)"
 
 
 # Categories for model filtering
@@ -133,7 +162,10 @@ async def discover_models(gemini_client) -> dict:
         for m in gemini_client.models.list():
             for action in m.supported_actions:
                 if action == "generateContent":
-                    all_models.append(m.name)
+                    # Strip 'models/' prefix — generate_content() expects bare name
+                    # e.g. "models/gemma-4-31b-it" → "gemma-4-31b-it"
+                    model_name = m.name.removeprefix("models/")
+                    all_models.append(model_name)
 
         log("MODEL", f"Found {len(all_models)} models with generateContent")
 
@@ -176,10 +208,12 @@ async def try_model_chain(
     model_chain: dict,
     contents,
     config=None,
-    task_name: str = "task"
+    task_name: str = "task",
+    max_retries: int = 2,
 ) -> Optional[object]:
     """
     Try models in chain order (primary → fallbacks).
+    Retries transient errors before moving to next model.
     Returns first successful response, or None if all fail.
     """
     models_to_try = model_chain.get("all", [])
@@ -188,28 +222,39 @@ async def try_model_chain(
         return None
 
     for model_name in models_to_try:
-        try:
-            log("MODEL", f"Trying {model_name} for {task_name}...")
-            kwargs = {"model": model_name, "contents": contents}
-            if config:
-                kwargs["config"] = config
+        for attempt in range(1, max_retries + 1):
+            try:
+                log("MODEL", f"Trying {model_name} for {task_name} (attempt {attempt})...")
+                kwargs = {"model": model_name, "contents": contents}
+                if config:
+                    kwargs["config"] = config
 
-            # Timeout: 120s per request (high-demand models need buffer)
-            from google.genai import types
-            kwargs["http_options"] = types.HttpOptions(timeout=120_000)
+                # generate_content is SYNC — run in thread to avoid blocking event loop
+                response = await asyncio.to_thread(
+                    gemini_client.models.generate_content, **kwargs
+                )
 
-            # generate_content is SYNC — call directly (same as image_editor.py)
-            response = gemini_client.models.generate_content(**kwargs)
+                # Check for safety blocks
+                safety_err = _check_safety(response)
+                if safety_err:
+                    log("MODEL", f"{model_name}: {safety_err}")
+                    break  # Don't retry safety blocks — skip to next model
 
-            if response.text:
-                log("MODEL", f"Success with {model_name} for {task_name}")
-                return response
-            else:
-                log("MODEL", f"{model_name} returned empty response for {task_name}")
+                if response.text:
+                    log("MODEL", f"Success with {model_name} for {task_name}")
+                    return response
+                else:
+                    log("MODEL", f"{model_name} returned empty response for {task_name}")
+                    break  # Empty but not safety — don't retry
 
-        except Exception as e:
-            log("MODEL", f"{model_name} failed for {task_name}: {e}")
-            continue
+            except Exception as e:
+                log("MODEL", f"{model_name} failed for {task_name}: {e}")
+                if _is_transient_error(e) and attempt < max_retries:
+                    wait = 2 ** attempt  # exponential backoff: 2s, 4s
+                    log("MODEL", f"Transient error, retrying in {wait}s...")
+                    await asyncio.sleep(wait)
+                    continue
+                break  # Non-transient or max retries — move to next model
 
     log("ERROR", f"All models failed for {task_name}")
     return None

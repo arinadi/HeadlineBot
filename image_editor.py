@@ -228,13 +228,21 @@ def analyze_image(image_path: str, gemini_client) -> Dict[str, Any]:
         )
 
         if resp2.text is None:
+            # Check candidates for safety block reason
+            if hasattr(resp2, 'candidates') and resp2.candidates:
+                reason = getattr(resp2.candidates[0], 'finish_reason', '')
+                raise ValueError(f"Empty response (finish_reason: {reason})")
             raise ValueError("Empty response from Pass 2")
 
         text = resp2.text.strip()
 
-        # Safety filter
+        # Safety filter — keyword + candidates check
         if any(kw in text.lower() for kw in ("rejected", "high risk", "cannot analyze", "i'm sorry")):
             raise ValueError(f"Safety rejection: {text[:120]}")
+        if hasattr(resp2, 'candidates') and resp2.candidates:
+            reason = str(getattr(resp2.candidates[0], 'finish_reason', ''))
+            if 'SAFETY' in reason or 'BLOCK' in reason:
+                raise ValueError(f"Safety block: {reason}")
 
         # Extract JSON
         m = re.search(r"\{[^{}]*\}", text, re.DOTALL)

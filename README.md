@@ -193,7 +193,7 @@ else:
     !git clone https://github.com/arinadi/HeadlineBot.git
     %cd HeadlineBot
 !pip install ruff -q
-!ruff check . --fix --output-format=concise
+!ruff check . --fix --unsafe-fixes --output-format=concise
 ```
 
 ---

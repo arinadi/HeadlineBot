@@ -357,8 +357,6 @@ async def update_startup_message(gradio_url: str = None):
         return
 
     ai_status = "✅ Kitchen Open" if models_ready_event.is_set() else "⏳ Preparing..."
-    gemini_icon = "✓" if gemini_client else "✗"
-    mode_icon = "🌩️" if MODE == 'GEMINI' else "🔥"
     hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
     
     # If gradio_url is not passed, try to fetch it if it exists
@@ -580,7 +578,7 @@ async def queue_processor():
                     pass
 
             if 'transcript_text' in locals():
-                del transcript_text
+                del transcript_text  # noqa: F821
                 gc.collect()
 
             job_manager.job_queue.task_done()
@@ -726,7 +724,6 @@ async def main():
             idle_monitor.start()
 
         # Send startup notification in background (non-blocking)
-        mode_icon = "🌩️" if MODE == 'GEMINI' else "🔥"
         hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
         startup_text = (
             f"📰 *Welcome to HeadlineBot*\n"

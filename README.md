@@ -185,10 +185,15 @@ python start.py
 ### Lint (Colab)
 
 ```python
-!git clone https://github.com/arinadi/HeadlineBot.git
-%cd HeadlineBot
+import os
+if os.path.exists('HeadlineBot'):
+    %cd HeadlineBot
+    !git pull
+else:
+    !git clone https://github.com/arinadi/HeadlineBot.git
+    %cd HeadlineBot
 !pip install ruff -q
-!ruff check . --output-format=concise
+!ruff check . --fix --output-format=concise
 ```
 
 ---

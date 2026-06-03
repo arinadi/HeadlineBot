@@ -569,7 +569,10 @@ async def queue_processor():
         except Exception as e:
             job.status = "failed"
             log("ERROR", f"[{job.job_id}] {e}")
-            await application.bot.send_message(job.chat_id, f"❌ *Failed:* `{job.original_filename}`\n`{e}`", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
+            try:
+                await application.bot.send_message(job.chat_id, f"❌ *Failed:* `{job.original_filename}`\n`{e}`", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
+            except Exception:
+                log("ERROR", f"[{job.job_id}] Failed to send error notification")
         finally:
             if os.path.exists(job.local_filepath):
                 try:

@@ -282,24 +282,27 @@ async def transcribe_with_gemini(local_filepath: str, gemini_client) -> tuple[st
 
     try:
         log("GEMINI", f"Uploading {os.path.basename(local_filepath)}...")
-        # 1. Upload
-        audio_file = await asyncio.to_thread(
-            gemini_client.files.upload,
-            file=local_filepath
+        # 1. Upload (max 60s)
+        audio_file = await asyncio.wait_for(
+            asyncio.to_thread(gemini_client.files.upload, file=local_filepath),
+            timeout=60
         )
 
-        # 2. Wait for ACTIVE
+        # 2. Wait for ACTIVE (max 5 minutes)
         log("GEMINI", "Waiting for file processing...")
-        while True:
-            audio_file = await asyncio.to_thread(
-                gemini_client.files.get,
-                name=audio_file.name
+        max_polls = 150  # 150 * 2s = 300s = 5 minutes
+        for _ in range(max_polls):
+            audio_file = await asyncio.wait_for(
+                asyncio.to_thread(gemini_client.files.get, name=audio_file.name),
+                timeout=30
             )
             if audio_file.state.name == "ACTIVE":
                 break
             elif audio_file.state.name != "PROCESSING":
                 raise Exception(f"File failed to process. State: {audio_file.state.name}")
             await asyncio.sleep(2)
+        else:
+            raise Exception("Gemini file processing timed out after 5 minutes")
 
         # 3. Generate Transcript using model chain
         prompt = (

@@ -20,6 +20,8 @@ _TRANSIENT_ERRORS = (
 
 def _is_transient_error(error: Exception) -> bool:
     """Check if an error is transient (retryable)."""
+    if isinstance(error, asyncio.TimeoutError):
+        return True
     msg = str(error).lower()
     return any(kw in msg for kw in _TRANSIENT_ERRORS)
 
@@ -230,8 +232,9 @@ async def try_model_chain(
                     kwargs["config"] = config
 
                 # generate_content is SYNC — run in thread to avoid blocking event loop
-                response = await asyncio.to_thread(
-                    gemini_client.models.generate_content, **kwargs
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(gemini_client.models.generate_content, **kwargs),
+                    timeout=120
                 )
 
                 # Check for safety blocks

@@ -7,6 +7,7 @@
 Kirim file audio, video, atau foto dari ponselmu. HeadlineBot akan mengubahnya menjadi transkrip siap publish, ringkasan jurnalistik, dan foto yang sudah dikoreksi warnanya — dalam hitungan menit, bukan jam.
 
 [![Google Colab](https://img.shields.io/badge/Try%20Now-Colab-orange?logo=googlecolab)](https://colab.research.google.com/)
+[![Kaggle](https://img.shields.io/badge/Try%20Now-Kaggle-blue?logo=kaggle)](https://www.kaggle.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
@@ -27,28 +28,102 @@ Jurnalis lapangan tidak punya waktu menunggu. HeadlineBot dirancang khusus untuk
 
 ## 🚀 Mulai dalam 3 Langkah
 
-### 1. Siapkan Secret
-Di Colab tab **Secrets**, tambahkan:
+HeadlineBot berjalan di **Google Colab** dan **Kaggle** — pilih salah satu:
+
+### Opsi A: Google Colab
+
+**1. Siapkan Secret**
+Di Colab tab **Secrets** (ikon kunci 🔑), tambahkan:
 - `TELEGRAM_BOT_TOKEN` — dari @BotFather
 - `TELEGRAM_CHAT_ID` — ID chat Telegrammu
 - `GEMINI_API_KEY` — untuk ringkasan & koreksi warna
 
-### 2. Set GPU
+**2. Set GPU**
 *Runtime > Change runtime type* → pilih **T4 GPU**
 
-### 3. Jalankan
-```python
-import os
-from google.colab import userdata
+**3. Pilih Versi & Jalankan**
 
-for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY', 'GITHUB_TOKEN', 'HF_TOKEN']:
+```python
+#@title Pilih Versi { display-mode: "form" }
+version = "prod" #@param ["prod", "beta"]
+
+import os, subprocess, urllib.request
+os.environ['HEADLINEBOT_VERSION'] = version
+_branch = 'beta' if version == 'beta' else 'main'
+
+# Load secrets dari Colab
+from google.colab import userdata
+for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY']:
     try:
         val = userdata.get(key)
         if val: os.environ[key] = str(val)
-    except: pass
+    except Exception: pass
 
-!curl -s https://raw.githubusercontent.com/arinadi/HeadlineBot/main/runner.py -o runner.py && python runner.py
+# Download runner
+url = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py'
+urllib.request.urlretrieve(url, 'runner.py')
+print(f'✅ runner.py [{_branch}] loaded')
+
+# Jalankan
+proc = subprocess.Popen(['python', 'runner.py'],
+    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    bufsize=1, universal_newlines=True)
+for line in proc.stdout:
+    print(line, end='', flush=True)
 ```
+
+### Opsi B: Kaggle
+
+**1. Siapkan Secret**
+Di Kaggle notebook menu **Add-ons > Secrets** (atau panel kiri), tambahkan:
+- `TELEGRAM_BOT_TOKEN` — dari @BotFather
+- `TELEGRAM_CHAT_ID` — ID chat Telegrammu
+- `GEMINI_API_KEY` — untuk ringkasan & koreksi warna
+
+**2. Set GPU & Internet**
+*Settings > Accelerator* → pilih **GPU T4 x2**
+*Settings > Internet* → nyalakan **Allow internet access**
+
+**3. Pilih Versi & Jalankan**
+
+> ⚠️ Kaggle belum support pre-run form (dropdown sebelum cell execute). Edit variabel di bawah lalu run cell.
+
+```python
+import os, subprocess, urllib.request
+
+# ── Pilih versi: ganti 'prod' atau 'beta' ──
+VERSION = 'prod'  # ← edit ini: 'prod' atau 'beta'
+
+os.environ['HEADLINEBOT_VERSION'] = VERSION
+_branch = 'beta' if VERSION == 'beta' else 'main'
+
+# Load secrets dari Kaggle
+from kaggle_secrets import UserSecretsClient
+client = UserSecretsClient()
+for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY']:
+    try:
+        val = client.get_secret(key)
+        if val: os.environ[key] = str(val)
+    except Exception: pass
+
+# Download runner
+url = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py'
+urllib.request.urlretrieve(url, 'runner.py')
+print(f'✅ runner.py [{_branch}] loaded')
+
+# Jalankan (streaming)
+proc = subprocess.Popen(['python', 'runner.py'],
+    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    bufsize=1, universal_newlines=True)
+for line in proc.stdout:
+    print(line, end='', flush=True)
+```
+
+> **Catatan Kaggle:**
+> - Edit `VERSION` di atas, lalu run cell (Shift+Enter).
+> - HeadlineBot otomatis memuat secrets dari Kaggle Secrets.
+> - Idle monitor aktif — bot mati otomatis saat idle (hemat GPU credits).
+> - Maksimal eksekusi ~9-12 jam per sesi.
 
 **Selesai.** Buka Telegram, kirim file, dan saksikan.
 
@@ -59,7 +134,7 @@ for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY', 'GITHUB_
 ### 🎙️ Transkripsi Cepat
 Kirim audio atau video. HeadlineBot mengubahnya menjadi teks lengkap tanpa timestamp.
 - **GPU Mode**: Whisper large-v2 — akurasi tinggi, tanpa batas durasi
-- **CPU Mode**: Gemini Cloud — otomatis pilih model terbaru, fallback jika credit habis
+- **CPU Mode**: Gemini Cloud — otomatis pilih model terbaru *(⚠️ sementara nonaktif, sedang research solusi lain)*
 - **Format**: MP3, MP4, WAV, M4A, WEBM, OGG, FLAC, MKV
 
 ### 📝 Ringkasan Jurnalistik
@@ -100,7 +175,7 @@ Kirim arsip ZIP berpartisi (.zip.01, .zip.02, dst). HeadlineBot akan:
 | **Foto** | 🎨 Koreksi warna AI | ❌ Tidak ada |
 | **Model Management** | 🤖 Auto-detect & sort by version | ⚙️ Hardcoded |
 | **Batas Durasi** | ♾️ Tanpa batas (GPU) | ⏱️ 10-60 menit |
-| **Harga** | 💰 Gratis (Colab) | 💸 $0.006/menit |
+| **Harga** | 💰 Gratis (Colab/Kaggle) | 💸 $0.006/menit |
 | **Offline** | ✅ GPU local processing | ❌ Selalu online |
 
 ---
@@ -128,7 +203,7 @@ HeadlineBot/
 ├── utils.py             # Summarization, retouch, formatting, Gemini API
 ├── config.py            # Konfigurasi via environment variables
 ├── start.py             # GPU/CPU detection, launcher
-├── runner.py            # Colab entry point
+├── runner.py            # Colab/Kaggle entry point (branch-aware: prod/beta)
 ├── gradio_handler.py    # Web UI untuk file besar
 ├── requirements.txt     # GPU dependencies
 └── requirements_cpu.txt # CPU-only dependencies
@@ -151,12 +226,13 @@ python start.py
 
 | Variable | Default | Keterangan |
 | :--- | :--- | :--- |
+| `HEADLINEBOT_VERSION` | `prod` | Versi: `prod` (branch main) atau `beta` (branch beta) |
 | `TELEGRAM_BOT_TOKEN` | — | Token dari BotFather (**wajib**) |
 | `TELEGRAM_CHAT_ID` | — | ID chat admin (**wajib**) |
-| `GEMINI_API_KEY` | — | Google AI Studio key (untuk ringkasan, retouch, foto) |
+| `GEMINI_API_KEY` | — | Google AI Studio key *(⚠️ fitur Gemini sementara nonaktif)* |
 | `MODEL_SIZE` | `large-v2` | Whisper model size |
 | `BOT_FILESIZE_LIMIT` | `20` | Max MB per file |
-| `ENABLE_IDLE_MONITOR` | `True` | Auto-shutdown saat idle (hemat Colab credits) |
+| `ENABLE_IDLE_MONITOR` | `True` | Auto-shutdown saat idle (hemat Colab/Kaggle credits) |
 
 > **Catatan Model:** HeadlineBot menggunakan Smart Model Manager yang otomatis mendeteksi model yang tersedia di akun Gemini-mu, memfilter flash & gemma, dan mengurutkan berdasarkan versi terbaru. Tidak perlu setting manual — model primary dan fallback diatur otomatis!
 
@@ -182,19 +258,25 @@ python start.py
 
 ## 🛠️ Development
 
-### Lint (Colab)
+### Lint (Colab / Kaggle)
 
 ```python
-import os
+import os, subprocess
+
+# Clone atau pull
 if os.path.exists('HeadlineBot'):
-    %cd HeadlineBot
-    !git pull
+    os.chdir('HeadlineBot')
+    subprocess.run(['git', 'pull'], check=True)
 else:
-    !git clone https://github.com/arinadi/HeadlineBot.git
-    %cd HeadlineBot
-!pip install ruff -q
-!ruff check . --fix --unsafe-fixes --output-format=concise
+    subprocess.run(['git', 'clone', 'https://github.com/arinadi/HeadlineBot.git'], check=True)
+    os.chdir('HeadlineBot')
+
+# Install & jalankan ruff
+subprocess.run(['pip', 'install', 'ruff', '-q'])
+subprocess.run(['ruff', 'check', '.', '--fix', '--unsafe-fixes', '--output-format=concise'])
 ```
+
+> **Kaggle:** Pastikan Internet access diaktifkan di Settings sebelum menjalankan lint.
 
 ---
 

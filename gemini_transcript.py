@@ -1,4 +1,4 @@
-# Install the new SDK if running in Colab
+# Install the new SDK if running in Colab/Kaggle
 # !pip install -q -U google-genai
 
 import os
@@ -15,10 +15,18 @@ from utils import build_journalist_summary_prompt  # type: ignore
 
 # --- Configuration ---
 # Detect environment
+IN_KAGGLE = 'kaggle_secrets' in sys.modules or os.path.exists('/kaggle')
 IN_COLAB = 'google.colab' in sys.modules
 
-if IN_COLAB:
-    from google.colab import files, userdata  # type: ignore
+if IN_KAGGLE:
+    from kaggle_secrets import UserSecretsClient  # type: ignore
+    try:
+        API_KEY = UserSecretsClient().get_secret('GEMINI_API_KEY')
+    except Exception:
+        API_KEY = None
+        print("Warning: GEMINI_API_KEY not found in Kaggle secrets.")
+elif IN_COLAB:
+    from google.colab import userdata, files  # type: ignore
     try:
         API_KEY = userdata.get('GEMINI_API_KEY')
     except Exception:
@@ -41,7 +49,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 client = genai.Client(api_key=API_KEY)
 
 def get_audio_duration(file_path):
-    """Gets audio duration in seconds using ffprobe (available in Colab)."""
+    """Gets audio duration in seconds using ffprobe (available in Colab/Kaggle)."""
     try:
         cmd = [
             "ffprobe",
@@ -203,7 +211,17 @@ def transcribe_audio(audio_path):
 
 if __name__ == "__main__":
     # Ensure pip install runs via user check
-    if IN_COLAB:
+    if IN_KAGGLE:
+        print("--- Kaggle Mode Detected ---")
+        print("Using API Key from Kaggle Secrets.")
+        print("Place an audio file in the working directory (Max 10 mins):")
+        audio_path = "input.mp3"
+        if not os.path.exists(audio_path):
+            print(f"File '{audio_path}' not found. Upload an audio file first.")
+        else:
+            transcribe_audio(audio_path)
+            print(f"\nAll files saved in '{OUTPUT_DIR}' folder.")
+    elif IN_COLAB:
         print("--- Colab Mode Detected ---")
         print("Tip: Ensure '!pip install -q -U google-genai' is run before this script.")
         print("Using API Key from Secrets.")

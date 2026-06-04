@@ -3,7 +3,7 @@
 > **Role**: Act as an Equal Pair Programmer. Maintain consistent coding standards and structures.
 
 ## Project Overview
-HeadlineBot is a Telegram bot designed for **Google Colab** and local systems that performs:
+HeadlineBot is a Telegram bot designed for **Google Colab**, **Kaggle**, and local systems that performs:
 1.  **Transcription**: Using `faster-whisper` (GPU) or **Google Gemini API** (CPU fallback).
 2.  **Summarization**: Using **Google Gemini** (Indonesian context).
 3.  **Image Color Correction**: Using **Gemma 4** for AI-powered photo editing.
@@ -11,7 +11,7 @@ HeadlineBot is a Telegram bot designed for **Google Colab** and local systems th
 
 ## Architecture
 -   **Smart Runner**: `start.py` detects CPU/GPU and sets `TRANSCRIPTION_MODE` ('WHISPER' or 'GEMINI').
--   **Vibe Coding**: This repository is the *Source of Truth*. Colab pulls this code at runtime.
+-   **Vibe Coding**: This repository is the *Source of Truth*. Colab/Kaggle pulls this code at runtime.
 -   **Async First**: Built on `python-telegram-bot` (async/await) and `asyncio`.
 
 ## Key Files

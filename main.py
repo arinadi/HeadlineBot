@@ -68,15 +68,24 @@ IDLE_FIRST_ALERT_MINUTES = Config.IDLE_FIRST_ALERT_MINUTES
 IDLE_FINAL_WARNING_MINUTES = Config.IDLE_FINAL_WARNING_MINUTES
 IDLE_SHUTDOWN_MINUTES = Config.IDLE_SHUTDOWN_MINUTES
 
-# Detect Colab
+# Detect Runtime Environment (Kaggle > Colab > Local)
+IS_COLAB = False
+IS_KAGGLE = False
+
 try:
-    from google.colab import runtime
-    IS_COLAB = True
+    from kaggle_secrets import UserSecretsClient
+    IS_KAGGLE = True
+    class KaggleRuntime:
+        def unassign(self): print("🔌 Kaggle: no auto-shutdown (stop notebook manually)")
+    runtime = KaggleRuntime()
 except ImportError:
-    IS_COLAB = False
-    class MockRuntime:
-        def unassign(self): print("🔌 Local Runtime Shutdown Executed")
-    runtime = MockRuntime()
+    try:
+        from google.colab import runtime
+        IS_COLAB = True
+    except ImportError:
+        class MockRuntime:
+            def unassign(self): print("🔌 Local Runtime Shutdown Executed")
+        runtime = MockRuntime()
 
 # Validation
 if not all([TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
@@ -156,28 +165,44 @@ async def send_telegram_notification(app: Application, message: str):
         log("ERROR", f"Telegram notification failed: {e}")
 
 async def perform_shutdown(reason: str):
-    """Notifies admins and safely terminates the Colab runtime."""
+    """Notifies admins and stops the bot. On Colab/Kaggle, also unassigns runtime."""
     global SHUTDOWN_IN_PROGRESS
     if SHUTDOWN_IN_PROGRESS:
         return
     SHUTDOWN_IN_PROGRESS = True
     uptime_str = get_runtime()
     log("SHUTDOWN", f"Initiated. Reason: {reason}")
+
+    # 1. Notify admin
     try:
         if application:
             await send_telegram_notification(application, f"🔌 *Shutdown*\nReason: `{reason}`\nUptime: `{uptime_str}`")
             log("SHUTDOWN", "Notification sent")
     except Exception as e:
         log("ERROR", f"Final notification failed: {e}")
-    finally:
-        log("SHUTDOWN", "Terminating runtime...")
-        try:
+
+    # 2. Stop the Telegram polling loop (this unblocks run_polling)
+    try:
+        if application:
+            await application.stop()
+            log("SHUTDOWN", "Polling stopped")
+    except Exception as e:
+        log("ERROR", f"Failed to stop polling: {e}")
+
+    # 3. Platform-specific termination
+    try:
+        if IS_KAGGLE:
+            # Kaggle has no runtime.unassign() — force-kill the process
+            log("SHUTDOWN", "Kaggle: force exit (no auto-shutdown available)")
+            os._exit(0)
+        elif IS_COLAB:
             if runtime:
                 runtime.unassign()
-            else:
-                log("SHUTDOWN", "Runtime object not found (local execution?)")
-        except Exception as e:
-            log("ERROR", f"Runtime shutdown failed: {e}")
+            log("SHUTDOWN", "Colab runtime unassigned")
+        else:
+            log("SHUTDOWN", "Local: process will exit naturally")
+    except Exception as e:
+        log("ERROR", f"Runtime shutdown failed: {e}")
 
 async def initialize_models_background():
     """Loads Whisper (if in WHISPER mode) and initializes Gemini client."""
@@ -536,8 +561,21 @@ async def queue_processor():
     log("WORKER", "Waiting for AI models...")
     await models_ready_event.wait()
     log("WORKER", "Models ready. Processing jobs...")
+    last_heartbeat = time.time()
     while not SHUTDOWN_IN_PROGRESS:
-        job: Job = await job_manager.job_queue.get()
+        # Heartbeat every 60s — keeps Kaggle alive (prevents idle kill)
+        if time.time() - last_heartbeat >= 60:
+            elapsed = get_runtime()
+            qsize = job_manager.job_queue.qsize()
+            processing = job_manager.currently_processing
+            status = f"processing {processing.original_filename}" if processing else "idle"
+            log("HEARTBEAT", f"Queue={qsize} | Status={status}")
+            last_heartbeat = time.time()
+
+        try:
+            job: Job = await asyncio.wait_for(job_manager.job_queue.get(), timeout=30)
+        except asyncio.TimeoutError:
+            continue  # Loop back to heartbeat check
 
         if job.status == 'cancelled':
             log("WORKER", f"[{job.job_id}] Skipped (cancelled)")
@@ -834,6 +872,8 @@ if __name__ == "__main__":
             except Exception:
                 pass
     finally:
-        if IS_COLAB:
-            print("🔌 Triggering Colab Runtime Shutdown (Error Safe-mode)...")
+        # Safety net: if perform_shutdown wasn't called (e.g. KeyboardInterrupt),
+        # still clean up the runtime. perform_shutdown handles the normal path.
+        if IS_COLAB or IS_KAGGLE:
+            print("🔌 Runtime cleanup (safety net)...", flush=True)
             runtime.unassign()

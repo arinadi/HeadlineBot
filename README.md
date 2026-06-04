@@ -88,37 +88,40 @@ Di Kaggle notebook menu **Add-ons > Secrets** (atau panel kiri), tambahkan:
 
 ```python
 import os, subprocess, urllib.request
-from IPython.display import display
-from ipywidgets import Dropdown, Button
+from ipywidgets import Dropdown, Button, Output
 
 # ── Select form ──
 sel = Dropdown(options=['prod', 'beta'], value='prod', description='Versi:')
-display(sel)
+out = Output()
+display(sel, out)
 
 def run(b):
     os.environ['HEADLINEBOT_VERSION'] = sel.value
     _branch = 'beta' if sel.value == 'beta' else 'main'
 
-    # Load secrets dari Kaggle
-    from kaggle_secrets import UserSecretsClient
-    client = UserSecretsClient()
-    for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY']:
-        try:
-            val = client.get_secret(key)
-            if val: os.environ[key] = str(val)
-        except Exception: pass
+    with out:
+        out.clear_output()
 
-    # Download runner
-    url = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py'
-    urllib.request.urlretrieve(url, 'runner.py')
-    print(f'✅ runner.py [{_branch}] loaded')
+        # Load secrets dari Kaggle
+        from kaggle_secrets import UserSecretsClient
+        client = UserSecretsClient()
+        for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY']:
+            try:
+                val = client.get_secret(key)
+                if val: os.environ[key] = str(val)
+            except Exception: pass
 
-    # Jalankan (streaming)
-    proc = subprocess.Popen(['python', 'runner.py'],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        bufsize=1, universal_newlines=True)
-    for line in proc.stdout:
-        print(line, end='', flush=True)
+        # Download runner
+        url = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py'
+        urllib.request.urlretrieve(url, 'runner.py')
+        print(f'✅ runner.py [{_branch}] loaded')
+
+        # Jalankan (streaming)
+        proc = subprocess.Popen(['python', 'runner.py'],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            bufsize=1, universal_newlines=True)
+        for line in proc.stdout:
+            print(line, end='', flush=True)
 
 btn = Button(description='🚀 Jalankan')
 btn.on_click(run)

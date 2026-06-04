@@ -1,22 +1,23 @@
-import os
-import time
-import uuid
 import asyncio
+import os
 import re
 import shutil
-import zipfile
 import sys
+import time
+import uuid
+import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import List, Optional, Callable, Any, Dict
+from typing import Any
 
+import ffmpeg
 import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, ContextTypes
 from werkzeug.utils import secure_filename
-import ffmpeg
 
-from config import Config, TELEGRAM_CHAT_ID
+from config import TELEGRAM_CHAT_ID, Config
 from utils import log
 
 # Image file extensions
@@ -68,24 +69,24 @@ class Job:
 
 class IdleMonitor:
     """Monitors bot activity and triggers alerts or shutdown when idle.
-    
+
     Timeline with Config (Notify=1, Warn=5, Shutdown=10):
     - [0m]  Bot idle → shutdown_on = now + 10 minutes
     - [1m]  elapsed=1 → First Alert sent (with Extend button)
     - [5m]  elapsed=5 → Final Warning sent
     - [10m] elapsed=10, remaining=0 → Shutdown
-    
+
     extend_timer() adds minutes to shutdown_on, delaying shutdown.
     """
     def __init__(self, app: Application, job_manager: "JobManager", shutdown_callback: Callable[[str], Any]):
         self.app = app
         self.job_manager = job_manager
         self.shutdown_callback = shutdown_callback
-        self.shutdown_on: Optional[float] = None  # Absolute timestamp for shutdown
+        self.shutdown_on: float | None = None  # Absolute timestamp for shutdown
         self.shutdown_imminent = False
         self.alerts_sent = {'first_alert': False, 'final_warning': False}
         self.last_extend_time = 0
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         log("INIT", f"IdleMonitor ready (alert={Config.IDLE_FIRST_ALERT_MINUTES}m, "
                     f"warn={Config.IDLE_FINAL_WARNING_MINUTES}m, shutdown={Config.IDLE_SHUTDOWN_MINUTES}m)")
 
@@ -164,11 +165,11 @@ class IdleMonitor:
     async def _monitor_loop(self):
         while True:
             await asyncio.sleep(60)
-            
+
             # Skip if not enabled or shutdown already in progress
             if self.shutdown_imminent or not Config.ENABLE_IDLE_MONITOR:
                 continue
-            
+
             # Wait for job_manager to be initialized
             if self.job_manager is None:
                 log("IDLE", "Waiting for job_manager...")
@@ -185,15 +186,15 @@ class IdleMonitor:
                     remaining_minutes = (self.shutdown_on - time.time()) / 60
                     elapsed_minutes = Config.IDLE_SHUTDOWN_MINUTES - remaining_minutes
                     log("IDLE", f"Elapsed: {elapsed_minutes:.1f}m, Remaining: {remaining_minutes:.1f}m")
-                    
+
                     # 1. FIRST ALERT
                     if elapsed_minutes >= Config.IDLE_FIRST_ALERT_MINUTES and not self.alerts_sent['first_alert']:
                         await self._handle_first_alert(remaining_minutes)
-                    
+
                     # 2. FINAL WARNING
                     if elapsed_minutes >= Config.IDLE_FINAL_WARNING_MINUTES and not self.alerts_sent['final_warning']:
                         await self._handle_final_warning(remaining_minutes)
-                    
+
                     # 3. SHUTDOWN
                     if remaining_minutes <= 0:
                         await self._handle_shutdown()
@@ -212,8 +213,8 @@ class JobManager:
         self.idle_monitor = idle_monitor_ref
         self.models_ready_event = models_ready_event
         self.job_queue = asyncio.Queue()
-        self.currently_processing: Optional[Job] = None
-        self.job_registry: Dict[str, Job] = {}
+        self.currently_processing: Job | None = None
+        self.job_registry: dict[str, Job] = {}
         log("INIT", "JobManager ready")
 
     async def add_job(self, job: Job):
@@ -223,10 +224,10 @@ class JobManager:
         queue_position = self.job_queue.qsize()
         model_status_note = " ⏳" if not self.models_ready_event.is_set() else ""
         content = f"✅ Queued: `{job.original_filename}` (#{queue_position}){model_status_note}"
-        
+
         # Add simpler cancel button
         keyboard = [[InlineKeyboardButton("❌", callback_data=f"cancel_{job.job_id}")]]
-        
+
         await self.app.bot.send_message(job.chat_id, content, parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id, reply_markup=InlineKeyboardMarkup(keyboard))
         log("JOB", f"[{job.job_id}] Queued at #{queue_position}")
 
@@ -255,7 +256,7 @@ class JobManager:
     def is_idle(self) -> bool:
         return self.job_queue.empty() and self.currently_processing is None
 
-    def get_queued_jobs(self) -> List[Job]:
+    def get_queued_jobs(self) -> list[Job]:
         return [job for job in self.job_registry.values() if job.status == 'queued']
 
 
@@ -312,7 +313,7 @@ class FilesHandler:
             filename_str = f"`{filename_override or 'the uploaded file'}`"
             await message.reply_text(f"❌ Failed to process {filename_str}. The file may be corrupt or in an unsupported format.")
             print(f"Error validating file {filename_str}: {e}", file=sys.stderr)
-            if os.path.exists(local_path): 
+            if os.path.exists(local_path):
                 os.remove(local_path)
 
     async def handle_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

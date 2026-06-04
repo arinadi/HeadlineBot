@@ -8,42 +8,33 @@
 # SECTION 1: IMPORT & CONFIGURATION
 # ------------------------------------------------------------------------------
 
-import sys
-import os
 import asyncio
 import gc
+import os
+import sys
 import time
 import uuid
-from typing import Optional
 
 # --- Local Imports ---
 import config
+from bot_classes import FilesHandler, IdleMonitor, Job, JobManager
 from config import Config
-from utils import (
-    summarize_text,
-    retouch_transcript,
-    format_duration,
-    log,
-    get_runtime
-)
-from bot_classes import Job, IdleMonitor, JobManager, FilesHandler
 from image_editor import edit_image
 from model_manager import discover_models
-from utils import set_model_chains
+from utils import format_duration, get_runtime, log, retouch_transcript, set_model_chains, summarize_text
 
 # --- Transcription Mode ---
 MODE = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')
 
 # --- External Libraries (Core) ---
 try:
+    import nest_asyncio
     import telegram
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
     from telegram.constants import ParseMode
+    from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
     from telegram.request import HTTPXRequest
-    from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
-                              ContextTypes, MessageHandler, filters)
     from werkzeug.utils import secure_filename
-    import nest_asyncio
 except ImportError as e:
     sys.exit(f"❌ Critical Dependency Missing: {e}\nPlease run: pip install -r requirements_cpu.txt")
 
@@ -150,12 +141,12 @@ if MODE == 'GEMINI':
 # ------------------------------------------------------------------------------
 
 # --- Global State Variables ---
-application: Optional[Application] = None
-idle_monitor: Optional[IdleMonitor] = None
-job_manager: Optional[JobManager] = None
-files_handler: Optional[FilesHandler] = None
+application: Application | None = None
+idle_monitor: IdleMonitor | None = None
+job_manager: JobManager | None = None
+files_handler: FilesHandler | None = None
 SHUTDOWN_IN_PROGRESS = False
-STARTUP_MESSAGE_ID: Optional[int] = None
+STARTUP_MESSAGE_ID: int | None = None
 
 async def send_telegram_notification(app: Application, message: str):
     """Sends a formatted message to the designated admin chat."""
@@ -208,7 +199,7 @@ async def initialize_models_background():
                 if not torch.cuda.is_available():
                     device = "cpu"
                     log("INIT", "GPU detected by system but not accessible by Torch. Using CPU.")
-                
+
                 try:
                     import gradio_handler
                     GRADIO_AVAILABLE = True
@@ -218,7 +209,7 @@ async def initialize_models_background():
                 if SHUTDOWN_IN_PROGRESS: return
                 log("INIT", "Heavy ML dependencies missing. Installing in background...")
                 await send_telegram_notification(application, "📦 *Unpacking heavy equipment...*\nDownloading AI libraries (~1-2 mins). I'll let you know when the kitchen is fully open.")
-                
+
                 # 1. Install uv first (now in background)
                 subprocess_uv = await asyncio.create_subprocess_exec(
                     "pip", "install", "uv", "-q",
@@ -236,7 +227,7 @@ async def initialize_models_background():
                     stderr=asyncio.subprocess.PIPE
                 )
                 stdout, stderr = await process.communicate()
-                
+
                 if SHUTDOWN_IN_PROGRESS: return
 
                 if process.returncode != 0:
@@ -260,12 +251,12 @@ async def initialize_models_background():
         if SHUTDOWN_IN_PROGRESS: return
 
         if MODE == 'WHISPER':
-            from faster_whisper import WhisperModel
             import torch
+            from faster_whisper import WhisperModel
             log("INIT", f"Loading Whisper ({WHISPER_MODEL}, {device})...")
             # Logic for compute_type
             compute_type = "float16" if device == "cuda" else "int8"
-            
+
             # User override logic
             prec_cfg = str(WHISPER_PRECISION).lower()
             if prec_cfg == 'false' or prec_cfg == 'float32':
@@ -276,13 +267,13 @@ async def initialize_models_background():
                 compute_type = "int8"
 
             model = await asyncio.to_thread(
-                WhisperModel, 
-                WHISPER_MODEL, 
-                device=device, 
+                WhisperModel,
+                WHISPER_MODEL,
+                device=device,
                 compute_type=compute_type
             )
             log("INIT", f"Whisper loaded ({compute_type})")
-        
+
         if SHUTDOWN_IN_PROGRESS: return
 
         if GEMINI_API_KEY:
@@ -299,11 +290,11 @@ async def initialize_models_background():
         if SHUTDOWN_IN_PROGRESS: return
 
         models_ready_event.set()
-        
+
         # Start Gradio web interface if available now
         if GRADIO_AVAILABLE:
             application.create_task(initialize_gradio_background())
-            
+
         # Update startup message
         await update_startup_message()
         await send_telegram_notification(application, "🛎️ *Kitchen is now open!* All AI systems are ready to process your orders.")
@@ -321,18 +312,18 @@ async def initialize_gradio_background():
     if not GRADIO_AVAILABLE or not gradio_handler:
         log("GRADIO", "Not available, skipping")
         return
-    
+
     try:
         log("GRADIO", "Starting web interface...")
         main_loop = asyncio.get_running_loop()
         gradio_handler.set_dependencies(job_manager, UPLOAD_FOLDER, main_loop)
         public_url = await gradio_handler.launch_gradio_async(share=True)
-        
+
         if public_url:
             log("GRADIO", f"Online: {public_url}")
             # Update startup message with URL
             await update_startup_message(public_url)
-            
+
             # Pin the startup message
             if STARTUP_MESSAGE_ID:
                 try:
@@ -358,14 +349,14 @@ async def update_startup_message(gradio_url: str = None):
 
     ai_status = "✅ Kitchen Open" if models_ready_event.is_set() else "⏳ Preparing..."
     hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
-    
+
     # If gradio_url is not passed, try to fetch it if it exists
     if not gradio_url and GRADIO_AVAILABLE and gradio_handler.gradio_app:
         if hasattr(gradio_handler.gradio_app, 'share_url'):
             gradio_url = gradio_handler.gradio_app.share_url
 
     gradio_text = f"🌐 *Web UI:* {gradio_url}\n" if gradio_url else ""
-    
+
     msg_text = (
         f"📰 *Welcome to HeadlineBot*\n"
         f"Your AI assistant for front-line reporting. Send your files anytime.\n\n"
@@ -375,9 +366,9 @@ async def update_startup_message(gradio_url: str = None):
         f"{gradio_text}"
         f"📂 *Order Limit:* `{BOT_FILESIZE_LIMIT}MB` per file"
     )
-    
+
     keyboard = [[InlineKeyboardButton("🔌 Close Restaurant", callback_data="shutdown_bot")]]
-    
+
     try:
         await application.bot.edit_message_text(
             chat_id=TELEGRAM_CHAT_ID,
@@ -395,7 +386,7 @@ def run_transcription_process(job: Job) -> tuple[str, str]:
     # Note: This runs in a thread, so we use print directly (log_utils works here too)
     from utils import log
     log("WHISPER", f"[{job.job_id}] Transcribing {job.original_filename}...")
-    
+
     transcribe_options = {
         "beam_size": WHISPER_BEAM_SIZE,
         "patience": WHISPER_PATIENCE,
@@ -403,7 +394,7 @@ def run_transcription_process(job: Job) -> tuple[str, str]:
         "repetition_penalty": WHISPER_REPETITION_PENALTY,
         "no_repeat_ngram_size": WHISPER_NO_REPEAT_NGRAM_SIZE
     }
-    
+
     # Run transcription
     # VAD parameters from user research
     vad_parameters = dict(
@@ -412,24 +403,24 @@ def run_transcription_process(job: Job) -> tuple[str, str]:
         min_silence_duration_ms=VAD_MIN_SILENCE_DURATION_MS,
         speech_pad_ms=VAD_SPEECH_PAD_MS
     )
-    
+
     segments_generator, info = model.transcribe(
-        job.local_filepath, 
+        job.local_filepath,
         vad_filter=VAD_FILTER,
         vad_parameters=vad_parameters,
         **transcribe_options
     )
-    
+
     # Convert generator to list to ensure full processing
     segments = list(segments_generator)
-    
+
     # Use native formatting (Raw segments from Whisper)
     from utils import format_transcription_native
     formatted_text = format_transcription_native(segments)
-    
-    
+
+
     log("WHISPER", f"[{job.job_id}] Done: {len(segments)} segments, lang={info.language} ({info.language_probability:.0%})")
-    
+
     return formatted_text, info.language if info.language else 'N/A'
 
 async def _process_image_job(job: Job, _start_time: float):
@@ -602,7 +593,7 @@ async def get_status_text_and_keyboard():
     ai_status = "✅ Kitchen Ready" if models_ready_event.is_set() else "⏳ Preparing Kitchen"
     mode_label = "Gemini Cloud" if MODE == 'GEMINI' else f"Local {WHISPER_MODEL}"
     hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
-    
+
     text = (
         f"📊 *Restaurant Status*\n"
         f"🛠️ *Equipment:* `{hardware_label}`\n"
@@ -671,7 +662,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if time.time() - idle_monitor.last_extend_time < 300:
             await query.answer("⏳ Please wait 5 minutes before extending again.", show_alert=True)
             return
-        
+
         if idle_monitor.extend_timer(5):
             idle_monitor.last_extend_time = time.time()
             new_text = f"✅ *Idle Extended*\nTimer added +5 minutes.\n_Action by {query.from_user.first_name}_"
@@ -690,28 +681,28 @@ async def main():
 
     # Longer timeouts and connection pool for network resilience
     request = HTTPXRequest(
-        read_timeout=60.0, 
+        read_timeout=60.0,
         connect_timeout=20.0,
         write_timeout=30.0,
         pool_timeout=30.0,
         connection_pool_size=8
     )
-    
+
     if not TELEGRAM_BOT_TOKEN:
         sys.exit("❌ FATAL: No TELEGRAM_BOT_TOKEN found. Exiting.")
 
     async def post_init(application: Application):
         """Initializes background tasks after the application is ready."""
         log("INIT", "Running post-init tasks...")
-        
+
         # Background Tasks - start AFTER bot is ready to receive
         application.create_task(queue_processor())
         application.create_task(initialize_models_background())
-        
+
         # Start Gradio web interface (async, like AI models)
         if GRADIO_AVAILABLE:
             application.create_task(initialize_gradio_background())
-        
+
         if ENABLE_IDLE_MONITOR:
             # CPU/Gemini Mode: Multiply by 5 as requested
             if MODE == 'GEMINI':
@@ -719,7 +710,7 @@ async def main():
                 IDLE_FIRST_ALERT_MINUTES *= 5
                 IDLE_FINAL_WARNING_MINUTES *= 5
                 IDLE_SHUTDOWN_MINUTES *= 5
-                # Note: We must also update Config directly if other components use it, 
+                # Note: We must also update Config directly if other components use it,
                 # but since we have aliases, we should update both or just aliases.
                 # However, IdleMonitor was already initialized with Config values.
                 # Let's check how IdleMonitor is initialized.
@@ -737,10 +728,10 @@ async def main():
             f"📂 *Order Limit:* `{BOT_FILESIZE_LIMIT}MB` per file"
         )
         keyboard = [[InlineKeyboardButton("🔌 Close Restaurant", callback_data="shutdown_bot")]]
-        
+
         msg = await application.bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID, 
-            text=startup_text, 
+            chat_id=TELEGRAM_CHAT_ID,
+            text=startup_text,
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -755,7 +746,7 @@ async def main():
     job_manager = JobManager(application, idle_monitor, models_ready_event)
     idle_monitor.job_manager = job_manager
     files_handler = FilesHandler(job_manager, UPLOAD_FOLDER)
-    
+
     # Filter for approved chat only
     chat_filter = filters.Chat(chat_id=TELEGRAM_CHAT_ID)
 
@@ -765,38 +756,38 @@ async def main():
     application.add_handler(CommandHandler("extend", extend_command, filters=chat_filter))
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.ATTACHMENT & chat_filter, files_handler.handle_files))
-    
-    
+
+
     # Error Handler with retry tracking
     _transient_error_counts = {}  # Track consecutive transient errors
     MAX_TRANSIENT_RETRIES = 2
-    
+
     async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
         error = context.error
         error_name = type(error).__name__
         print(f"❌ Exception while handling an update: {error_name}: {error}")
-        
+
         # List of transient network/connection errors that should NOT trigger shutdown
         transient_errors = (
             # httpx errors
             'ReadError', 'WriteError', 'ConnectError', 'ConnectTimeout', 'ReadTimeout', 'WriteTimeout',
             'PoolTimeout', 'CloseError', 'ProxyError', 'ProtocolError', 'RemoteProtocolError',
-            'LocalProtocolError', 'UnsupportedProtocol', 'DecodingError', 
+            'LocalProtocolError', 'UnsupportedProtocol', 'DecodingError',
             # SSL errors
             'SSLError', 'SSLCertVerificationError',
-            # Telegram-bot errors  
+            # Telegram-bot errors
             'TimeoutException', 'NetworkError', 'TimedOut', 'RetryAfter', 'Forbidden',
             # General connection
             'ConnectionError', 'ConnectionResetError', 'ConnectionRefusedError', 'BrokenPipeError',
             'OSError', 'IOError', 'socket.error', 'socket.timeout'
         )
-        
+
         if error_name in transient_errors:
             # Track retry count
             _transient_error_counts[error_name] = _transient_error_counts.get(error_name, 0) + 1
             count = _transient_error_counts[error_name]
-            
+
             if count <= MAX_TRANSIENT_RETRIES:
                 print(f"⚠️ [ERROR_HANDLER] Transient error {error_name} ({count}/{MAX_TRANSIENT_RETRIES}) - will retry")
                 return  # Don't shutdown, let telegram-bot retry
@@ -804,10 +795,10 @@ async def main():
                 print(f"🔴 [ERROR_HANDLER] Transient error {error_name} exceeded {MAX_TRANSIENT_RETRIES} retries - network may be unstable")
                 _transient_error_counts[error_name] = 0  # Reset counter
                 return  # Still don't shutdown, but log critical warning
-        
+
         # Reset counters on non-transient error
         _transient_error_counts.clear()
-        
+
         # Notify user if possible (wrapped in try-except)
         try:
             if update and isinstance(update, Update) and update.effective_message:
@@ -815,7 +806,7 @@ async def main():
                 await update.effective_message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
         except Exception as notify_err:
             print(f"⚠️ [ERROR_HANDLER] Could not send error notification: {notify_err}")
-        
+
         # Trigger safe shutdown only for critical errors
         await perform_shutdown(f"Application Error: {error}")
 

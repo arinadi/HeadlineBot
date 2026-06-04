@@ -6,9 +6,8 @@
 
 import asyncio
 import re
-from typing import List, Optional
-from utils import log
 
+from utils import log
 
 # Transient errors that warrant retry before fallback
 _TRANSIENT_ERRORS = (
@@ -86,9 +85,9 @@ def extract_version(model_name: str) -> tuple:
 
 
 def filter_models(
-    all_models: List[str],
-    categories: List[str] = None
-) -> List[str]:
+    all_models: list[str],
+    categories: list[str] = None
+) -> list[str]:
     """
     Filter models by category (flash, gemma, or both).
     Returns filtered list sorted by version (newest first).
@@ -118,9 +117,9 @@ def filter_models(
 
 
 def build_model_chain(
-    all_models: List[str],
+    all_models: list[str],
     primary_category: str = "flash",
-    fallback_categories: List[str] = None
+    fallback_categories: list[str] = None
 ) -> dict:
     """
     Build a model chain: primary + fallbacks.
@@ -212,7 +211,7 @@ async def try_model_chain(
     config=None,
     task_name: str = "task",
     max_retries: int = 2,
-) -> Optional[object]:
+) -> object | None:
     """
     Try models in chain order (primary → fallbacks).
     Retries transient errors before moving to next model.

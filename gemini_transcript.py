@@ -2,13 +2,15 @@
 # !pip install -q -U google-genai
 
 import os
+import subprocess
 import sys
 import time
-import subprocess
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
 from google import genai  # type: ignore
 from google.genai import types  # type: ignore
+
 from utils import build_journalist_summary_prompt  # type: ignore
 
 # --- Configuration ---
@@ -16,7 +18,7 @@ from utils import build_journalist_summary_prompt  # type: ignore
 IN_COLAB = 'google.colab' in sys.modules
 
 if IN_COLAB:
-    from google.colab import userdata, files  # type: ignore
+    from google.colab import files, userdata  # type: ignore
     try:
         API_KEY = userdata.get('GEMINI_API_KEY')
     except Exception:
@@ -42,10 +44,10 @@ def get_audio_duration(file_path):
     """Gets audio duration in seconds using ffprobe (available in Colab)."""
     try:
         cmd = [
-            "ffprobe", 
-            "-v", "error", 
-            "-show_entries", "format=duration", 
-            "-of", "default=noprint_wrappers=1:nokey=1", 
+            "ffprobe",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
             file_path
         ]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -67,22 +69,22 @@ def upload_to_gemini(path, mime_type=None):
 def wait_for_files_active(file):
     """Waits for the given file to start processing."""
     print("Waiting for file processing...", end="")
-    
+
     while file.state.name == "PROCESSING":
         print(".", end="", flush=True)
         time.sleep(2)
         file = client.files.get(name=file.name)
-        
+
     if file.state.name != "ACTIVE":
         raise Exception(f"File {file.name} failed to process. State: {file.state.name}")
-    
+
     print("\n...file ready")
     return file
 
 def generate_summary(transcript_text, file_metadata, today_date):
     """Generates a summary based on the transcript and file metadata."""
     prompt = build_journalist_summary_prompt(today_date, file_metadata)
-    
+
     print(f"Sending Summary Request to {MODEL_NAME}...")
     try:
         response = client.models.generate_content(
@@ -103,7 +105,7 @@ def generate_summary(transcript_text, file_metadata, today_date):
 
 def transcribe_audio(audio_path):
     """Main function to handle transcription and summarization."""
-    
+
     print(f"\nProcessing: {audio_path}")
     today_date = datetime.now().strftime("%Y-%m-%d")
 
@@ -163,7 +165,7 @@ def transcribe_audio(audio_path):
                 response_mime_type="text/plain",
             )
         )
-        
+
         # Check if response is valid but empty/blocked
         if not response.text:
              print("\n[WARNING] Response text is empty. Checking candidates...")
@@ -175,7 +177,7 @@ def transcribe_audio(audio_path):
              return
 
         transcript_text = response.text
-        
+
         # Save Transcript (TS)
         ts_filename = os.path.join(OUTPUT_DIR, f"TS_{Path(audio_path).stem}.txt")
         with open(ts_filename, "w", encoding="utf-8") as f:
@@ -191,7 +193,7 @@ def transcribe_audio(audio_path):
         with open(ai_filename, "w", encoding="utf-8") as f:
             f.write(summary_text)
         print(f"Success! Summary saved to: {ai_filename}")
-        
+
     except Exception as e:
         print(f"\n[ERROR] Processing Failed: {e}")
         # Try to print more details about the exception if available
@@ -206,7 +208,7 @@ if __name__ == "__main__":
         print("Tip: Ensure '!pip install -q -U google-genai' is run before this script.")
         print("Using API Key from Secrets.")
         print("Please upload an audio file (Max 10 mins):")
-        
+
         uploaded = files.upload()
         if uploaded:
             audio_path = next(iter(uploaded))
@@ -216,7 +218,7 @@ if __name__ == "__main__":
             print("No file uploaded.")
     else:
         # Local Mode
-        audio_path = "input.mp3" 
+        audio_path = "input.mp3"
         if not os.path.exists(audio_path):
             print(f"File '{audio_path}' not found. Please provide a valid audio file.")
         else:

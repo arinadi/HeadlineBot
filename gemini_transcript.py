@@ -122,8 +122,8 @@ def transcribe_audio(audio_path):
     duration = get_audio_duration(audio_path)
     if duration:
         print(f"Audio Duration: {duration:.2f} seconds ({duration/60:.2f} minutes)")
-        if duration > 600: # 10 minutes
-            print("Error: Audio file exceeds 10 minutes. Please trim the file to avoid token limits.")
+        if duration > 1200: # 20 minutes
+            print("Error: Audio file exceeds 20 minutes. Please trim the file to avoid token limits.")
             return
     else:
         print("Warning: Skipping duration check (ffprobe not found or failed).")

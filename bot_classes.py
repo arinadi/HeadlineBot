@@ -285,11 +285,11 @@ class FilesHandler:
 
             # Duration check for Gemini mode
             mode = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')
-            if mode == 'GEMINI' and duration > 600:
+            if mode == 'GEMINI' and duration > 1200:
                 await message.reply_text(
                     f"⚠️ *Split Duration Limit Exceeded*\n\n"
                     f"File `{original_filename}` is {duration/60:.1f} minutes long. "
-                    f"In CPU/Gemini mode, the limit is 10 minutes per file. "
+                    f"In CPU/Gemini mode, the limit is 20 minutes per file. "
                     f"Please trim or split the file.",
                     parse_mode=ParseMode.MARKDOWN
                 )

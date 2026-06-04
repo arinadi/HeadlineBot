@@ -1,8 +1,9 @@
 # start.py
 
 import os
-import sys
 import subprocess
+import sys
+
 
 def check_cuda():
     """Checks if CUDA is available by querying nvidia-smi."""
@@ -14,9 +15,9 @@ def check_cuda():
 
 def main():
     print("🔍 HeadlineBot Smart Runner: Detecting Environment...")
-    
+
     is_gpu, gpu_reason = check_cuda()
-    
+
     if is_gpu:
         mode = 'WHISPER'
         print(f"🚀 {gpu_reason}. Transcription Mode: WHISPER")
@@ -26,10 +27,10 @@ def main():
 
     # Set Environment Variable
     os.environ['TRANSCRIPTION_MODE'] = mode
-    
+
     # Launch main.py
     print(f"🚀 Starting HeadlineBot in {mode} Mode...")
-    
+
     try:
         # Use sys.executable to ensure we use the same environment
         cmd = [sys.executable, "main.py"]

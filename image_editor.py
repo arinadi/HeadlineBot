@@ -5,17 +5,17 @@
 # Based on code review fixes and preset research.
 # ------------------------------------------------------------------------------
 
-import os
-import io
-import re
-import json
-import shutil
 import asyncio
+import io
+import json
+import os
+import re
+import shutil
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 
-import numpy as np
 import cv2
+import numpy as np
 from PIL import Image
 
 from utils import log
@@ -30,32 +30,32 @@ JPEG_QUALITY = int(os.getenv('JPEG_QUALITY', 95))
 # 📦  LOAD PRESETS
 # ─────────────────────────────────────────────────
 _PRESETS_PATH = os.path.join(os.path.dirname(__file__), "docs", "presets.json")
-_PRESETS_DATA: Dict[str, Any] = {}
+_PRESETS_DATA: dict[str, Any] = {}
 
-def _load_presets() -> Dict[str, Any]:
+def _load_presets() -> dict[str, Any]:
     """Load presets from JSON file."""
     global _PRESETS_DATA
     try:
-        with open(_PRESETS_PATH, "r") as f:
+        with open(_PRESETS_PATH) as f:
             _PRESETS_DATA = json.load(f)
         log("IMAGE", f"Loaded {len(_PRESETS_DATA.get('presets', {}))} presets from presets.json")
     except Exception as e:
         log("IMAGE", f"Failed to load presets: {e}, using empty presets")
         _PRESETS_DATA = {"presets": {}, "parameter_locks": {}, "condition_codes": []}
 
-def _get_preset(condition: str) -> Dict[str, Any]:
+def _get_preset(condition: str) -> dict[str, Any]:
     """Get preset params for a condition code."""
     presets = _PRESETS_DATA.get("presets", {})
     if condition in presets:
         return presets[condition].get("params", {})
     return {}
 
-def _get_locks(condition: str) -> Dict[str, Any]:
+def _get_locks(condition: str) -> dict[str, Any]:
     """Get parameter locks for a condition."""
     locks = _PRESETS_DATA.get("parameter_locks", {})
     return locks.get(condition, {})
 
-def _apply_locks(params: Dict[str, Any], locks: Dict[str, Any]) -> Dict[str, Any]:
+def _apply_locks(params: dict[str, Any], locks: dict[str, Any]) -> dict[str, Any]:
     """Apply parameter locks — clamp values to allowed ranges."""
     if not locks:
         return params
@@ -156,7 +156,7 @@ DEFAULT_PARAMS = {
 # ─────────────────────────────────────────────────
 # 🤖  TWO-PASS IMAGE ANALYSIS
 # ─────────────────────────────────────────────────
-def analyze_image(image_path: str, gemini_client) -> Dict[str, Any]:
+def analyze_image(image_path: str, gemini_client) -> dict[str, Any]:
     """
     Two-pass analysis:
       Pass 1: Classify condition (one code)
@@ -380,11 +380,11 @@ def quality_guard(original: np.ndarray, result: np.ndarray) -> bool:
 # 🖼️  OPENCV: APPLY COLOR CORRECTIONS
 # — BUG-01 (GW skip), BUG-03 (norm_original), WARN-04 (divisor 150)
 # ─────────────────────────────────────────────────
-def apply_corrections(input_path: str, params: Dict[str, Any], output_path: str) -> str:
+def apply_corrections(input_path: str, params: dict[str, Any], output_path: str) -> str:
     """Apply color corrections using OpenCV pipeline."""
     img_bgr = cv2.imread(input_path, cv2.IMREAD_COLOR)
     if img_bgr is None:
-        raise IOError(f"Cannot read: {input_path}")
+        raise OSError(f"Cannot read: {input_path}")
 
     original_bgr = img_bgr.copy()
     img = img_bgr.astype(np.float32)
@@ -490,7 +490,7 @@ async def edit_image(
     input_path: str,
     output_path: str,
     gemini_client,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Main entry point: two-pass analyze with Gemma 4, apply corrections with OpenCV.
     Returns dict with status and parameters used.

@@ -1,7 +1,8 @@
-from datetime import datetime
 import asyncio
-import time
 import os
+import time
+from datetime import datetime
+
 import config
 
 # --- Logging Utilities (Merged from log_utils.py) ---
@@ -126,6 +127,7 @@ async def summarize_text(transcript: str, gemini_client) -> str:
     prompt = build_journalist_summary_prompt(today_date)
 
     from google.genai import types
+
     from model_manager import try_model_chain
 
     chain = get_model_chain("summary")
@@ -152,6 +154,7 @@ async def retouch_transcript(transcript: str, gemini_client) -> str:
     contents = [prompt, transcript]
 
     from google.genai import types
+
     from model_manager import try_model_chain
 
     chain = get_model_chain("retouch")

@@ -43,24 +43,28 @@ Di Colab tab **Secrets** (ikon kunci 🔑), tambahkan:
 
 **3. Pilih Versi & Jalankan**
 
-| Versi | Branch | Keterangan |
-|:---|:---|:---|
-| `prod` | `main` | ✅ Stabil, untuk produksi |
-| `beta` | `beta` | ⚠️ Fitur baru, belum stabil |
-
 ```python
+#@title Pilih Versi { display-mode: "form" }
+version = "prod" #@param ["prod", "beta"]
+
 import os, subprocess, urllib.request
+os.environ['HEADLINEBOT_VERSION'] = version
+_branch = 'beta' if version == 'beta' else 'main'
 
-# ── STEP 1: Pilih versi ───────────────────────────────
-os.environ['HEADLINEBOT_VERSION'] = 'prod'  # ← ganti ke 'beta' untuk versi beta
+# Load secrets dari Colab
+from google.colab import userdata
+for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY']:
+    try:
+        val = userdata.get(key)
+        if val: os.environ[key] = str(val)
+    except Exception: pass
 
-# ── STEP 2: Download runner dari branch yang sesuai ──
-_branch = 'beta' if os.environ['HEADLINEBOT_VERSION'] == 'beta' else 'main'
+# Download runner
 url = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py'
 urllib.request.urlretrieve(url, 'runner.py')
-print(f'✅ runner.py downloaded ({_branch} branch)')
+print(f'✅ runner.py [{_branch}] loaded')
 
-# ── STEP 3: Jalankan (streaming output) ──
+# Jalankan
 proc = subprocess.Popen(['python', 'runner.py'],
     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     bufsize=1, universal_newlines=True)
@@ -84,29 +88,47 @@ Di Kaggle notebook menu **Add-ons > Secrets** (atau panel kiri), tambahkan:
 
 ```python
 import os, subprocess, urllib.request
+from ipywidgets import Dropdown, Output
 
-# ── STEP 1: Pilih versi ───────────────────────────────
-os.environ['HEADLINEBOT_VERSION'] = 'prod'  # ← ganti ke 'beta' untuk versi beta
+# ── Select form ──
+sel = Dropdown(options=['prod', 'beta'], value='prod', description='Versi:')
+display(sel)
 
-# ── STEP 2: Download runner dari branch yang sesuai ──
-_branch = 'beta' if os.environ['HEADLINEBOT_VERSION'] == 'beta' else 'main'
-url = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py'
-urllib.request.urlretrieve(url, 'runner.py')
-print(f'✅ runner.py downloaded ({_branch} branch)')
+def run(b):
+    os.environ['HEADLINEBOT_VERSION'] = sel.value
+    _branch = 'beta' if sel.value == 'beta' else 'main'
 
-# ── STEP 3: Jalankan (streaming agar Kaggle tidak kill) ──
-proc = subprocess.Popen(['python', 'runner.py'],
-    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-    bufsize=1, universal_newlines=True)
-for line in proc.stdout:
-    print(line, end='', flush=True)
+    # Load secrets dari Kaggle
+    from kaggle_secrets import UserSecretsClient
+    client = UserSecretsClient()
+    for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY']:
+        try:
+            val = client.get_secret(key)
+            if val: os.environ[key] = str(val)
+        except Exception: pass
+
+    # Download runner
+    url = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py'
+    urllib.request.urlretrieve(url, 'runner.py')
+    print(f'✅ runner.py [{_branch}] loaded')
+
+    # Jalankan (streaming)
+    proc = subprocess.Popen(['python', 'runner.py'],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        bufsize=1, universal_newlines=True)
+    for line in proc.stdout:
+        print(line, end='', flush=True)
+
+from IPython.display import display, Button
+btn = Button(description='🚀 Jalankan')
+btn.on_click(run)
+display(btn)
 ```
 
 > **Catatan Kaggle:**
-> - HeadlineBot otomatis mendeteksi environment Kaggle dan memuat secrets dari Kaggle Secrets.
-> - **Penting:** Pakai `subprocess.Popen` (bukan `!python`) agar output streaming real-time dan bot tidak di-kill Kaggle.
-> - Idle monitor tetap aktif — bot akan mati otomatis setelah idle (hemat GPU credits).
-> - Kaggle tidak support auto-shutdown runtime — stop notebook manual jika sudah selesai.
+> - Pilih versi dari dropdown, lalu klik **Jalankan**.
+> - HeadlineBot otomatis memuat secrets dari Kaggle Secrets.
+> - Idle monitor aktif — bot mati otomatis saat idle (hemat GPU credits).
 > - Maksimal eksekusi ~9-12 jam per sesi.
 
 **Selesai.** Buka Telegram, kirim file, dan saksikan.

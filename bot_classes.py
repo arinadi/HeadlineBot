@@ -118,12 +118,15 @@ class IdleMonitor:
     async def _handle_first_alert(self, remaining_minutes: float):
         alert_msg = f"⏸️ Idle. Shutdown in `{int(remaining_minutes)}m`"
         keyboard = [[InlineKeyboardButton("⏳ +5m", callback_data="extend_idle")]]
-        await self.app.bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=alert_msg,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.MARKDOWN
-        )
+        try:
+            await self.app.bot.send_message(
+                chat_id=TELEGRAM_CHAT_ID,
+                text=alert_msg,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            log("ERROR", f"Telegram notification failed: {e}")
         self.alerts_sent['first_alert'] = True
         log("IDLE", "First alert sent")
 

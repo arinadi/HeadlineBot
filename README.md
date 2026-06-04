@@ -230,6 +230,7 @@ python start.py
 | `TELEGRAM_BOT_TOKEN` | — | Token dari BotFather (**wajib**) |
 | `TELEGRAM_CHAT_ID` | — | ID chat admin (**wajib**) |
 | `GEMINI_API_KEY` | — | Google AI Studio key *(⚠️ fitur Gemini sementara nonaktif)* |
+| `ENABLE_GEMINI_FEATURES` | `false` | Enable summary/retouch/photo *(⚠️ sementara `false`)* |
 | `MODEL_SIZE` | `large-v2` | Whisper model size |
 | `BOT_FILESIZE_LIMIT` | `20` | Max MB per file |
 | `ENABLE_IDLE_MONITOR` | `True` | Auto-shutdown saat idle (hemat Colab/Kaggle credits) |

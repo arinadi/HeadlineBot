@@ -74,6 +74,9 @@ class Config:
     # Shutdown: Minutes of idleness before killing runtime.
     IDLE_SHUTDOWN_MINUTES = int(os.getenv('IDLE_SHUTDOWN_MINUTES', 10))
 
+    # --- Gemini Features (temporarily disabled) ---
+    ENABLE_GEMINI_FEATURES = os.getenv('ENABLE_GEMINI_FEATURES', 'false').lower() == 'true'
+
     # --- Image Editing Settings ---
     # Model: Gemma model for image analysis
     GEMMA_MODEL = os.getenv('GEMMA_MODEL', 'models/gemma-4-26b-a4b-it')

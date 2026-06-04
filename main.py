@@ -461,7 +461,8 @@ async def _process_image_job(job: Job, _start_time: float):
     output_path = os.path.join(IMAGE_OUTPUT_FOLDER, f"{uuid.uuid4().hex}_{output_filename}")
 
     # Process
-    if gemini_client:
+    ENABLE_GEMINI = os.getenv('ENABLE_GEMINI_FEATURES', 'true').lower() == 'true'
+    if gemini_client and ENABLE_GEMINI:
         result = await edit_image(job.local_filepath, output_path, gemini_client)
         if result["status"] == "success":
             params = result["params"]
@@ -520,7 +521,8 @@ async def _process_transcript_job(job: Job, start_time: float):
         await application.bot.send_document(job.chat_id, document=ts_file, filename=ts_filename, reply_to_message_id=job.message_id)
 
     # 2. AI Summary + Retouch — PARALLEL, send 1-by-1 as each succeeds
-    if gemini_client:
+    ENABLE_GEMINI = os.getenv('ENABLE_GEMINI_FEATURES', 'true').lower() == 'true'
+    if gemini_client and ENABLE_GEMINI:
         do_retouch = MODE == 'WHISPER'
 
         async def _run_and_send_summary():

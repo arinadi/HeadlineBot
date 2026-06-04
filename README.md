@@ -88,7 +88,8 @@ Di Kaggle notebook menu **Add-ons > Secrets** (atau panel kiri), tambahkan:
 
 ```python
 import os, subprocess, urllib.request
-from ipywidgets import Dropdown, Output
+from IPython.display import display
+from ipywidgets import Dropdown, Button
 
 # ── Select form ──
 sel = Dropdown(options=['prod', 'beta'], value='prod', description='Versi:')
@@ -119,7 +120,6 @@ def run(b):
     for line in proc.stdout:
         print(line, end='', flush=True)
 
-from IPython.display import display, Button
 btn = Button(description='🚀 Jalankan')
 btn.on_click(run)
 display(btn)

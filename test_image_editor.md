@@ -33,8 +33,11 @@ URLS = {
     "url_5": "",  # optional
 }
 
-# Path image_editor.py di Colab (default: /content/)
-EDITOR_DIR = "/content"
+# Detect platform & set paths
+IS_KAGGLE = os.path.exists('/kaggle')
+IS_COLAB = 'google.colab' in sys.modules
+WORK_DIR = "/kaggle/working" if IS_KAGGLE else "/content"
+EDITOR_DIR = WORK_DIR
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 📦  SETUP & INSTALL
@@ -78,13 +81,13 @@ def drive_file_id(url: str) -> str:
             return m.group(1)
     raise ValueError(f"Cannot extract file ID from: {url}")
 
-os.makedirs("/content/test_images", exist_ok=True)
+os.makedirs(f"{WORK_DIR}/test_images", exist_ok=True)
 downloaded = {}
 
 for label, url in active_urls.items():
     try:
         file_id = drive_file_id(url)
-        out = f"/content/test_images/{label}.jpg"
+        out = f"{WORK_DIR}/test_images/{label}.jpg"
         gdown.download(id=file_id, output=out, quiet=True)
         if os.path.getsize(out) > 0:
             downloaded[label] = out
@@ -108,7 +111,7 @@ for label, input_path in downloaded.items():
     print(f"\n{'─'*50}")
     print(f"🖼️  {label}")
 
-    output_path = f"/content/test_images/{label}_edited.jpg"
+    output_path = f"{WORK_DIR}/test_images/{label}_edited.jpg"
 
     # Two-pass analyze
     params = analyze_image(input_path, client)
@@ -188,9 +191,9 @@ for i, (label, r) in enumerate(results.items()):
                  ha="center", fontsize=8, style="italic", color="#555")
 
 plt.suptitle("Image Editor Pipeline — Before vs After", fontsize=14, fontweight="bold", y=1.01)
-plt.savefig("/content/comparison.png", dpi=150, bbox_inches="tight")
+plt.savefig(f"{WORK_DIR}/comparison.png", dpi=150, bbox_inches="tight")
 plt.show()
-print("💾 /content/comparison.png")
+print(f"💾 {WORK_DIR}/comparison.png")
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 📋  PARAMETER TABLE
@@ -228,14 +231,17 @@ display(HTML(html))
 # 📥  DOWNLOAD HASIL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-from google.colab import files as colab_files
-
-for label, r in results.items():
-    if os.path.exists(r["output"]):
-        colab_files.download(r["output"])
-
-if os.path.exists("/content/comparison.png"):
-    colab_files.download("/content/comparison.png")
+if IS_COLAB:
+    from google.colab import files as colab_files
+    for label, r in results.items():
+        if os.path.exists(r["output"]):
+            colab_files.download(r["output"])
+    if os.path.exists(f"{WORK_DIR}/comparison.png"):
+        colab_files.download(f"{WORK_DIR}/comparison.png")
+elif IS_KAGGLE:
+    print("📂 Files saved in working directory. Download from Kaggle Output panel.")
+else:
+    print(f"📂 Files saved in {WORK_DIR}/test_images/")
 
 print("\n🎉 Selesai! Semua hasil sudah didownload.")
 ```

@@ -86,50 +86,41 @@ Di Kaggle notebook menu **Add-ons > Secrets** (atau panel kiri), tambahkan:
 
 **3. Pilih Versi & Jalankan**
 
+> ⚠️ Kaggle belum support pre-run form (dropdown sebelum cell execute). Edit variabel di bawah lalu run cell.
+
 ```python
 import os, subprocess, urllib.request
-from ipywidgets import Dropdown, Button, Output
 
-# ── Select form ──
-sel = Dropdown(options=['prod', 'beta'], value='prod', description='Versi:')
-out = Output()
-display(sel, out)
+# ── Pilih versi: ganti 'prod' atau 'beta' ──
+VERSION = 'prod'  # ← edit ini: 'prod' atau 'beta'
 
-def run(b):
-    os.environ['HEADLINEBOT_VERSION'] = sel.value
-    _branch = 'beta' if sel.value == 'beta' else 'main'
+os.environ['HEADLINEBOT_VERSION'] = VERSION
+_branch = 'beta' if VERSION == 'beta' else 'main'
 
-    with out:
-        out.clear_output()
+# Load secrets dari Kaggle
+from kaggle_secrets import UserSecretsClient
+client = UserSecretsClient()
+for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY']:
+    try:
+        val = client.get_secret(key)
+        if val: os.environ[key] = str(val)
+    except Exception: pass
 
-        # Load secrets dari Kaggle
-        from kaggle_secrets import UserSecretsClient
-        client = UserSecretsClient()
-        for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY']:
-            try:
-                val = client.get_secret(key)
-                if val: os.environ[key] = str(val)
-            except Exception: pass
+# Download runner
+url = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py'
+urllib.request.urlretrieve(url, 'runner.py')
+print(f'✅ runner.py [{_branch}] loaded')
 
-        # Download runner
-        url = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py'
-        urllib.request.urlretrieve(url, 'runner.py')
-        print(f'✅ runner.py [{_branch}] loaded')
-
-        # Jalankan (streaming)
-        proc = subprocess.Popen(['python', 'runner.py'],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            bufsize=1, universal_newlines=True)
-        for line in proc.stdout:
-            print(line, end='', flush=True)
-
-btn = Button(description='🚀 Jalankan')
-btn.on_click(run)
-display(btn)
+# Jalankan (streaming)
+proc = subprocess.Popen(['python', 'runner.py'],
+    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    bufsize=1, universal_newlines=True)
+for line in proc.stdout:
+    print(line, end='', flush=True)
 ```
 
 > **Catatan Kaggle:**
-> - Pilih versi dari dropdown, lalu klik **Jalankan**.
+> - Edit `VERSION` di atas, lalu run cell (Shift+Enter).
 > - HeadlineBot otomatis memuat secrets dari Kaggle Secrets.
 > - Idle monitor aktif — bot mati otomatis saat idle (hemat GPU credits).
 > - Maksimal eksekusi ~9-12 jam per sesi.
@@ -143,7 +134,7 @@ display(btn)
 ### 🎙️ Transkripsi Cepat
 Kirim audio atau video. HeadlineBot mengubahnya menjadi teks lengkap tanpa timestamp.
 - **GPU Mode**: Whisper large-v2 — akurasi tinggi, tanpa batas durasi
-- **CPU Mode**: Gemini Cloud — otomatis pilih model terbaru, fallback jika credit habis
+- **CPU Mode**: Gemini Cloud — otomatis pilih model terbaru *(⚠️ sementara nonaktif, sedang research solusi lain)*
 - **Format**: MP3, MP4, WAV, M4A, WEBM, OGG, FLAC, MKV
 
 ### 📝 Ringkasan Jurnalistik
@@ -238,7 +229,7 @@ python start.py
 | `HEADLINEBOT_VERSION` | `prod` | Versi: `prod` (branch main) atau `beta` (branch beta) |
 | `TELEGRAM_BOT_TOKEN` | — | Token dari BotFather (**wajib**) |
 | `TELEGRAM_CHAT_ID` | — | ID chat admin (**wajib**) |
-| `GEMINI_API_KEY` | — | Google AI Studio key (untuk ringkasan, retouch, foto) |
+| `GEMINI_API_KEY` | — | Google AI Studio key *(⚠️ fitur Gemini sementara nonaktif)* |
 | `MODEL_SIZE` | `large-v2` | Whisper model size |
 | `BOT_FILESIZE_LIMIT` | `20` | Max MB per file |
 | `ENABLE_IDLE_MONITOR` | `True` | Auto-shutdown saat idle (hemat Colab/Kaggle credits) |

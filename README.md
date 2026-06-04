@@ -49,16 +49,23 @@ Di Colab tab **Secrets** (ikon kunci 🔑), tambahkan:
 | `beta` | `beta` | ⚠️ Fitur baru, belum stabil |
 
 ```python
+import os, subprocess, urllib.request
+
 # ── STEP 1: Pilih versi ───────────────────────────────
-%env HEADLINEBOT_VERSION=prod   # ← ganti ke 'beta' untuk versi beta
+os.environ['HEADLINEBOT_VERSION'] = 'prod'  # ← ganti ke 'beta' untuk versi beta
 
 # ── STEP 2: Download runner dari branch yang sesuai ──
-import os
 _branch = 'beta' if os.environ['HEADLINEBOT_VERSION'] == 'beta' else 'main'
-!curl -s https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py -o runner.py
+url = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py'
+urllib.request.urlretrieve(url, 'runner.py')
+print(f'✅ runner.py downloaded ({_branch} branch)')
 
-# ── STEP 3: Jalankan ──
-!python runner.py
+# ── STEP 3: Jalankan (streaming output) ──
+proc = subprocess.Popen(['python', 'runner.py'],
+    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    bufsize=1, universal_newlines=True)
+for line in proc.stdout:
+    print(line, end='', flush=True)
 ```
 
 ### Opsi B: Kaggle
@@ -76,22 +83,22 @@ Di Kaggle notebook menu **Add-ons > Secrets** (atau panel kiri), tambahkan:
 **3. Pilih Versi & Jalankan**
 
 ```python
+import os, subprocess, urllib.request
+
 # ── STEP 1: Pilih versi ───────────────────────────────
-import os
 os.environ['HEADLINEBOT_VERSION'] = 'prod'  # ← ganti ke 'beta' untuk versi beta
 
 # ── STEP 2: Download runner dari branch yang sesuai ──
 _branch = 'beta' if os.environ['HEADLINEBOT_VERSION'] == 'beta' else 'main'
-!curl -s https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py -o runner.py
+url = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py'
+urllib.request.urlretrieve(url, 'runner.py')
+print(f'✅ runner.py downloaded ({_branch} branch)')
 
 # ── STEP 3: Jalankan (streaming agar Kaggle tidak kill) ──
-import subprocess
-process = subprocess.Popen(
-    ['python', 'runner.py'],
+proc = subprocess.Popen(['python', 'runner.py'],
     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-    bufsize=1, universal_newlines=True
-)
-for line in process.stdout:
+    bufsize=1, universal_newlines=True)
+for line in proc.stdout:
     print(line, end='', flush=True)
 ```
 
@@ -238,15 +245,19 @@ python start.py
 ### Lint (Colab / Kaggle)
 
 ```python
-import os
+import os, subprocess
+
+# Clone atau pull
 if os.path.exists('HeadlineBot'):
-    %cd HeadlineBot
-    !git pull
+    os.chdir('HeadlineBot')
+    subprocess.run(['git', 'pull'], check=True)
 else:
-    !git clone https://github.com/arinadi/HeadlineBot.git
-    %cd HeadlineBot
-!pip install ruff -q
-!ruff check . --fix --unsafe-fixes --output-format=concise
+    subprocess.run(['git', 'clone', 'https://github.com/arinadi/HeadlineBot.git'], check=True)
+    os.chdir('HeadlineBot')
+
+# Install & jalankan ruff
+subprocess.run(['pip', 'install', 'ruff', '-q'])
+subprocess.run(['ruff', 'check', '.', '--fix', '--unsafe-fixes', '--output-format=concise'])
 ```
 
 > **Kaggle:** Pastikan Internet access diaktifkan di Settings sebelum menjalankan lint.

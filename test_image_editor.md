@@ -43,7 +43,8 @@ EDITOR_DIR = WORK_DIR
 # 📦  SETUP & INSTALL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-!pip install opencv-python-headless Pillow matplotlib gdown google-genai -q
+import subprocess
+subprocess.run(['pip', 'install', 'opencv-python-headless', 'Pillow', 'matplotlib', 'gdown', 'google-genai', '-q'])
 
 sys.path.insert(0, EDITOR_DIR)
 from image_editor import analyze_image, apply_corrections

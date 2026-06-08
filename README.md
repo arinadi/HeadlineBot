@@ -103,10 +103,11 @@ client.auth.universal_auth.login(
 resp = client.secrets.list_secrets(
     project_id=userdata.get("INFISICAL_PROJECT_ID"),
     environment_slug=userdata.get("INFISICAL_ENV", "dev"),
-    secret_path="/"
+    secret_path="/",
+    view_secret_value=True
 )
 for s in resp.secrets:
-    os.environ[s.secret_key] = s.secret_value
+    os.environ[s.secretKey] = s.secretValue
 print(f"✅ {len(resp.secrets)} secrets loaded: {[k for k in ['TELEGRAM_BOT_TOKEN','GEMINI_API_KEY'] if os.environ.get(k)]}")
 os.environ['SECRETS_LOADED'] = '1'
 
@@ -162,10 +163,11 @@ client.auth.universal_auth.login(
 resp = client.secrets.list_secrets(
     project_id=_secrets.get_secret("INFISICAL_PROJECT_ID"),
     environment_slug=_secrets.get_secret("INFISICAL_ENV") or "dev",
-    secret_path="/"
+    secret_path="/",
+    view_secret_value=True
 )
 for s in resp.secrets:
-    os.environ[s.secret_key] = s.secret_value
+    os.environ[s.secretKey] = s.secretValue
 print(f"✅ {len(resp.secrets)} secrets loaded: {[k for k in ['TELEGRAM_BOT_TOKEN','GEMINI_API_KEY'] if os.environ.get(k)]}")
 os.environ['SECRETS_LOADED'] = '1'
 

@@ -127,13 +127,14 @@ def load_infisical_secrets(
         project_id=project_id,
         environment_slug=environment,
         secret_path=secret_path,
+        view_secret_value=True,
     )
 
     result = {}
     for secret in secrets_response.secrets:
-        result[secret.secret_key] = secret.secret_value
+        result[secret.secretKey] = secret.secretValue
         if set_env_vars:
-            os.environ[secret.secret_key] = secret.secret_value
+            os.environ[secret.secretKey] = secret.secretValue
 
     print(f"✅ Infisical: {len(result)} secrets loaded [{environment}/{secret_path}]", flush=True)
     print(f"   Keys: {list(result.keys())}", flush=True)

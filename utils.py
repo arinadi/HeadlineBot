@@ -199,65 +199,6 @@ def get_val(seg, key, default=0.0):
         return seg.get(key, default)
     return default
 
-def format_transcription_with_pauses(segments: list, pause_thresh: float = 2.0) -> str:
-    """
-    Formats Whisper segments with timestamps at significant pauses.
-    """
-    if not segments:
-        return ""
-
-    # 1. Normalize and clean segments
-    clean_segments = []
-    for seg in segments:
-        text = str(get_val(seg, 'text', '')).strip()
-        if not text:
-            continue
-
-        start = float(get_val(seg, 'start', 0.0))
-        end = float(get_val(seg, 'end', start))
-
-        clean_segments.append({
-            'start': start,
-            'end': end,
-            'text': text
-        })
-
-    if not clean_segments:
-        return ""
-
-    # 2. Build blocks based on pauses
-    blocks: list[str] = []
-    current_block_start = float(clean_segments[0]['start'])
-    current_text_parts = [str(clean_segments[0]['text'])]
-    last_end = clean_segments[0]['end']
-
-    for i in range(1, len(clean_segments)):
-        seg = clean_segments[i]
-        gap = float(seg['start']) - float(last_end)
-
-        if gap > pause_thresh:
-            # Commit previous block
-            timestamp = format_timestamp(float(current_block_start))
-            block_content = " ".join(str(p) for p in current_text_parts)
-            blocks.append(f"{timestamp}\n{block_content}")
-
-            # Start new block
-            current_block_start = seg['start']
-            current_text_parts = [seg['text']]
-        else:
-            # Continue current block
-            current_text_parts.append(seg['text'])
-
-        last_end = seg['end']
-
-    # 3. Commit final block
-    if current_text_parts:
-        timestamp = format_timestamp(float(current_block_start))
-        block_content = " ".join(str(p) for p in current_text_parts)
-        blocks.append(f"{timestamp}\n{block_content}")
-
-    return "\n\n".join(blocks)
-
 def format_transcription_native(segments: list) -> str:
     """
     Formats Whisper segments exactly as output by the model (with VAD enabled).

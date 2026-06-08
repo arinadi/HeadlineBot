@@ -1,7 +1,7 @@
 import os
+import subprocess
 import sys
 import time
-import subprocess
 import urllib.request
 
 # Force unbuffered output (critical for Kaggle)
@@ -62,44 +62,9 @@ def resolve_version():
     return version, branch
 
 def load_secrets(platform):
-    """Load secrets into os.environ from platform-specific source."""
-    secret_keys = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY', 'GITHUB_TOKEN', 'HF_TOKEN']
-
-    if platform == "kaggle":
-        print("🔑 Loading secrets from Kaggle...", flush=True)
-        from kaggle_secrets import UserSecretsClient
-        client = UserSecretsClient()
-        loaded = 0
-        for key in secret_keys:
-            try:
-                val = client.get_secret(key)
-                if val:
-                    os.environ[key] = str(val)
-                    loaded += 1
-                    print(f"  ✅ {key}", flush=True)
-            except Exception:
-                pass
-        if loaded == 0:
-            print("  ⚠️ No secrets found! Go to Add-ons → Secrets → Attach keys.", flush=True)
-        return loaded
-
-    elif platform == "colab":
-        print("🔑 Loading secrets from Colab...", flush=True)
-        from google.colab import userdata
-        loaded = 0
-        for key in secret_keys:
-            try:
-                val = userdata.get(key)
-                if val:
-                    os.environ[key] = str(val)
-                    loaded += 1
-                    print(f"  ✅ {key}", flush=True)
-            except Exception:
-                pass
-        return loaded
-    else:
-        print("🔑 Using environment variables (local mode)", flush=True)
-        return -1
+    """Load secrets into os.environ via Infisical (or platform-native fallback)."""
+    from infisical_loader import load_all_secrets
+    return load_all_secrets(platform=platform)
 
 def verify_secrets(platform):
     """Verify critical secrets are loaded."""
@@ -108,10 +73,14 @@ def verify_secrets(platform):
 
     if missing:
         print(f"\n❌ CRITICAL: Missing secrets: {', '.join(missing)}", flush=True)
-        if platform == "kaggle":
-            print("   → Go to: Add-ons → Secrets → Attach TELEGRAM_BOT_TOKEN & TELEGRAM_CHAT_ID", flush=True)
+        if os.environ.get("INFISICAL_PROJECT_ID"):
+            print("   → Check that secrets exist in Infisical dashboard for your project/env.", flush=True)
+        elif platform == "kaggle":
+            print("   → Go to: Add-ons → Secrets → Attach INFISICAL_CLIENT_ID & INFISICAL_CLIENT_SECRET", flush=True)
+            print("   → Or set INFISICAL_PROJECT_ID env var to use Infisical.", flush=True)
         elif platform == "colab":
-            print("   → Go to: Secrets tab (🔑) → Add TELEGRAM_BOT_TOKEN & TELEGRAM_CHAT_ID", flush=True)
+            print("   → Go to: Secrets tab (🔑) → Add INFISICAL_CLIENT_ID & INFISICAL_CLIENT_SECRET", flush=True)
+            print("   → Or set INFISICAL_PROJECT_ID env var to use Infisical.", flush=True)
         return False
 
     optional = ['GEMINI_API_KEY']
@@ -123,8 +92,8 @@ def verify_secrets(platform):
 
 def download_repo_fallback(branch):
     """Download repo as ZIP when git is unavailable (fallback for Kaggle)."""
-    import zipfile
     import io
+    import zipfile
 
     zip_url = f"https://github.com/arinadi/HeadlineBot/archive/refs/heads/{branch}.zip"
     print(f"📥 Downloading repo ({branch} branch) from {zip_url}...", flush=True)
@@ -173,13 +142,16 @@ def main():
 
     print(f"🔄 Platform: {platform.upper()}", flush=True)
     print(f"🔄 Version: {version.upper()} (branch: {branch})", flush=True)
-    print(f"🔄 Checking environment...", flush=True)
+    print("🔄 Checking environment...", flush=True)
 
     # Set version env vars
     set_version_env(version, branch)
 
-    # 1. Load Secrets
-    loaded = load_secrets(platform)
+    # 1. Load Secrets (skip if already loaded from notebook cell)
+    if not os.environ.get('SECRETS_LOADED'):
+        load_secrets(platform)
+    else:
+        print("🔑 Secrets already loaded from notebook cell", flush=True)
 
     # 2. Verify critical secrets
     if not verify_secrets(platform):

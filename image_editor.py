@@ -520,13 +520,3 @@ async def edit_image(
             "error": str(e),
             "output_path": output_path,
         }
-
-
-# Supported image extensions
-SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff'}
-
-
-def is_image_file(filename: str) -> bool:
-    """Check if filename is a supported image file."""
-    ext = os.path.splitext(filename)[1].lower()
-    return ext in SUPPORTED_IMAGE_EXTENSIONS

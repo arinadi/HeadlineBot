@@ -102,7 +102,7 @@ async def _queue_gradio_job(file_path: str, filename: str, chat_id: int):
     try:
         import ffmpeg
 
-        from main import TranscriptionJob
+        from bot_classes import Job
 
         # Probe audio duration
         probe = await asyncio.to_thread(ffmpeg.probe, file_path)
@@ -118,7 +118,7 @@ async def _queue_gradio_job(file_path: str, filename: str, chat_id: int):
                 self.effective_attachment = type('obj', (object,), {'file_name': filename})
 
         mock_message = GradioMessage(chat_id, filename)
-        job = TranscriptionJob.from_message(mock_message, file_path, duration)
+        job = Job.from_message(mock_message, file_path, duration)
         job.author_display_name = "Web Upload"
 
         await _job_manager.add_job(job)

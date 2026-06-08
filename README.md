@@ -26,6 +26,40 @@ Jurnalis lapangan tidak punya waktu menunggu. HeadlineBot dirancang khusus untuk
 
 ---
 
+## 🔐 Setup Infisical
+
+HeadlineBot menggunakan [Infisical Cloud](https://app.infisical.com) untuk manajemen secret yang terpusat dan terenkripsi end-to-end.
+
+**Keuntungan:**
+- Cukup simpan **2 secret** di Kaggle/Colab (bukan 5)
+- Update secret di satu tempat, otomatis berlaku di semua notebook
+- Audit log — siapa akses secret, kapan, dari mana
+- E2E encrypted — bahkan Infisical tidak bisa baca valuemu
+
+### Setup Sekali Saja
+
+1. **Buat akun** di [app.infisical.com/signup](https://app.infisical.com/signup) (gratis)
+2. **Buat Project** baru (misal: `headlinebot`)
+3. **Tambahkan secrets** via dashboard:
+   - `TELEGRAM_BOT_TOKEN` — dari @BotFather
+   - `TELEGRAM_CHAT_ID` — ID chat Telegrammu
+   - `GEMINI_API_KEY` — untuk ringkasan & koreksi warna
+   - `GITHUB_TOKEN` — untuk clone private repo (opsional)
+   - `HF_TOKEN` — Hugging Face token (opsional)
+4. **Buat Machine Identity**: Organization Settings → Machine Identities → New → **Universal Auth**
+5. **Simpan** `CLIENT_ID` dan `CLIENT_SECRET` (tampil sekali saja!)
+6. **Assign** Machine Identity ke project, permission: **Read Only**
+
+### Setiap Notebook Baru
+
+Simpan 4 secret di Kaggle/Colab:
+- `INFISICAL_CLIENT_ID` — dari step 5 di atas
+- `INFISICAL_CLIENT_SECRET` — dari step 5 di atas
+- `INFISICAL_PROJECT_ID` — dari URL project: `app.infisical.com/project/XXX/secrets`
+- `INFISICAL_ENV` — `dev`, `staging`, atau `prod`
+
+---
+
 ## 🚀 Mulai dalam 3 Langkah
 
 HeadlineBot berjalan di **Google Colab** dan **Kaggle** — pilih salah satu:
@@ -34,37 +68,52 @@ HeadlineBot berjalan di **Google Colab** dan **Kaggle** — pilih salah satu:
 
 **1. Siapkan Secret**
 Di Colab tab **Secrets** (ikon kunci 🔑), tambahkan:
-- `TELEGRAM_BOT_TOKEN` — dari @BotFather
-- `TELEGRAM_CHAT_ID` — ID chat Telegrammu
-- `GEMINI_API_KEY` — untuk ringkasan & koreksi warna
+- `INFISICAL_CLIENT_ID` — dari Infisical dashboard (Machine Identity)
+- `INFISICAL_CLIENT_SECRET` — dari Infisical dashboard (simpan sekali!)
+- `INFISICAL_PROJECT_ID` — dari URL Infisical: `app.infisical.com/project/XXX/secrets`
+- `INFISICAL_ENV` — environment: `dev`, `staging`, atau `prod`
+
+> 💡 Semua secret (TELEGRAM_BOT_TOKEN, GEMINI_API_KEY, dll) disimpan di **Infisical Cloud** — satu tempat terpusat, terenkripsi E2E.
 
 **2. Set GPU**
 *Runtime > Change runtime type* → pilih **T4 GPU**
 
-**3. Pilih Versi & Jalankan**
+**3. Jalankan**
 
 ```python
-#@title Pilih Versi { display-mode: "form" }
-version = "prod" #@param ["prod", "beta"]
-
 import os, subprocess, urllib.request
-os.environ['HEADLINEBOT_VERSION'] = version
-_branch = 'beta' if version == 'beta' else 'main'
 
-# Load secrets dari Colab
+# ── Set Versi ──
+VERSION = 'prod'  # ← 'prod' atau 'beta'
+os.environ['HEADLINEBOT_VERSION'] = VERSION
+_branch = 'beta' if VERSION == 'beta' else 'main'
+_base = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}'
+
+# ── Load Secrets dari Infisical ──
+print("🔐 Loading secrets from Infisical...")
+!pip install infisicalsdk -q
+from infisical_sdk import InfisicalSDKClient
 from google.colab import userdata
-for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY']:
-    try:
-        val = userdata.get(key)
-        if val: os.environ[key] = str(val)
-    except Exception: pass
 
-# Download runner
-url = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py'
-urllib.request.urlretrieve(url, 'runner.py')
+client = InfisicalSDKClient(host="https://app.infisical.com")
+client.auth.universal_auth.login(
+    client_id=userdata.get("INFISICAL_CLIENT_ID"),
+    client_secret=userdata.get("INFISICAL_CLIENT_SECRET")
+)
+resp = client.secrets.list_secrets(
+    project_id=userdata.get("INFISICAL_PROJECT_ID"),
+    environment_slug=userdata.get("INFISICAL_ENV", "dev"),
+    secret_path="/"
+)
+for s in resp.secrets:
+    os.environ[s.secret_key] = s.secret_value
+print(f"✅ {len(resp.secrets)} secrets loaded: {[k for k in ['TELEGRAM_BOT_TOKEN','GEMINI_API_KEY'] if os.environ.get(k)]}")
+os.environ['SECRETS_LOADED'] = '1'
+
+# ── Download & Jalankan Runner ──
+urllib.request.urlretrieve(f'{_base}/runner.py', 'runner.py')
 print(f'✅ runner.py [{_branch}] loaded')
 
-# Jalankan
 proc = subprocess.Popen(['python', 'runner.py'],
     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     bufsize=1, universal_newlines=True)
@@ -76,39 +125,52 @@ for line in proc.stdout:
 
 **1. Siapkan Secret**
 Di Kaggle notebook menu **Add-ons > Secrets** (atau panel kiri), tambahkan:
-- `TELEGRAM_BOT_TOKEN` — dari @BotFather
-- `TELEGRAM_CHAT_ID` — ID chat Telegrammu
-- `GEMINI_API_KEY` — untuk ringkasan & koreksi warna
+- `INFISICAL_CLIENT_ID` — dari Infisical dashboard (Machine Identity)
+- `INFISICAL_CLIENT_SECRET` — dari Infisical dashboard (simpan sekali!)
+- `INFISICAL_PROJECT_ID` — dari URL Infisical: `app.infisical.com/project/XXX/secrets`
+- `INFISICAL_ENV` — environment: `dev`, `staging`, atau `prod`
+
+> 💡 Semua secret (TELEGRAM_BOT_TOKEN, GEMINI_API_KEY, dll) disimpan di **Infisical Cloud** — satu tempat terpusat, terenkripsi E2E.
 
 **2. Set GPU & Internet**
 *Settings > Accelerator* → pilih **GPU T4 x2**
 *Settings > Internet* → nyalakan **Allow internet access**
 
-**3. Pilih Versi & Jalankan**
-
-> ⚠️ Kaggle belum support pre-run form (dropdown sebelum cell execute). Edit variabel di bawah lalu run cell.
+**3. Jalankan**
 
 ```python
 import os, subprocess, urllib.request
 
-# ── Pilih versi: ganti 'prod' atau 'beta' ──
-VERSION = 'prod'  # ← edit ini: 'prod' atau 'beta'
-
+# ── Set Versi ──
+VERSION = 'prod'  # ← 'prod' atau 'beta'
 os.environ['HEADLINEBOT_VERSION'] = VERSION
 _branch = 'beta' if VERSION == 'beta' else 'main'
+_base = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}'
 
-# Load secrets dari Kaggle
+# ── Load Secrets dari Infisical ──
+print("🔐 Loading secrets from Infisical...")
+!pip install infisicalsdk -q
+from infisical_sdk import InfisicalSDKClient
 from kaggle_secrets import UserSecretsClient
-client = UserSecretsClient()
-for key in ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY']:
-    try:
-        val = client.get_secret(key)
-        if val: os.environ[key] = str(val)
-    except Exception: pass
 
-# Download runner
-url = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}/runner.py'
-urllib.request.urlretrieve(url, 'runner.py')
+_secrets = UserSecretsClient()
+client = InfisicalSDKClient(host="https://app.infisical.com")
+client.auth.universal_auth.login(
+    client_id=_secrets.get_secret("INFISICAL_CLIENT_ID"),
+    client_secret=_secrets.get_secret("INFISICAL_CLIENT_SECRET")
+)
+resp = client.secrets.list_secrets(
+    project_id=_secrets.get_secret("INFISICAL_PROJECT_ID"),
+    environment_slug=_secrets.get_secret("INFISICAL_ENV") or "dev",
+    secret_path="/"
+)
+for s in resp.secrets:
+    os.environ[s.secret_key] = s.secret_value
+print(f"✅ {len(resp.secrets)} secrets loaded: {[k for k in ['TELEGRAM_BOT_TOKEN','GEMINI_API_KEY'] if os.environ.get(k)]}")
+os.environ['SECRETS_LOADED'] = '1'
+
+# ── Download & Jalankan Runner ──
+urllib.request.urlretrieve(f'{_base}/runner.py', 'runner.py')
 print(f'✅ runner.py [{_branch}] loaded')
 
 # Jalankan (streaming)
@@ -120,8 +182,8 @@ for line in proc.stdout:
 ```
 
 > **Catatan Kaggle:**
-> - Edit `VERSION` di atas, lalu run cell (Shift+Enter).
-> - HeadlineBot otomatis memuat secrets dari Kaggle Secrets.
+> - Edit `VERSION`, `PROJECT_ID`, `ENVIRONMENT` di atas, lalu run cell (Shift+Enter).
+> - HeadlineBot otomatis memuat semua secrets dari Infisical Cloud.
 > - Idle monitor aktif — bot mati otomatis saat idle (hemat GPU credits).
 > - Maksimal eksekusi ~9-12 jam per sesi.
 
@@ -197,6 +259,7 @@ Kirim arsip ZIP berpartisi (.zip.01, .zip.02, dst). HeadlineBot akan:
 ```
 HeadlineBot/
 ├── main.py              # Core bot — handlers, queue, worker
+├── infisical_loader.py  # Infisical Cloud secret management (E2E encrypted)
 ├── model_manager.py     # Smart model discovery — auto-detect flash/gemma, version sort
 ├── image_editor.py      # AI color correction pipeline (Gemma 4 + OpenCV)
 ├── bot_classes.py       # JobManager, FilesHandler
@@ -205,6 +268,7 @@ HeadlineBot/
 ├── start.py             # GPU/CPU detection, launcher
 ├── runner.py            # Colab/Kaggle entry point (branch-aware: prod/beta)
 ├── gradio_handler.py    # Web UI untuk file besar
+├── .env.example         # Template environment variables untuk local dev
 ├── requirements.txt     # GPU dependencies
 └── requirements_cpu.txt # CPU-only dependencies
 ```
@@ -216,20 +280,35 @@ HeadlineBot/
 ```bash
 git clone https://github.com/arinadi/HeadlineBot.git
 cd HeadlineBot
-bash setup_uv.sh  # Auto-detect hardware & install
+cp .env.example .env  # Isi dengan values-mu
+bash setup_uv.sh      # Auto-detect hardware & install
 python start.py
 ```
+
+> **Local mode**: Bisa pakai Infisical (set `INFISICAL_*` di `.env`) atau set langsung secret di `.env`.
 
 ---
 
 ## ⚙️ Konfigurasi
 
+### Infisical (Recommended)
+
+Semua 4 variable ini disimpan di **Kaggle/Colab Secrets** (sekali saja):
+
+| Variable | Keterangan |
+| :--- | :--- |
+| `INFISICAL_CLIENT_ID` | Machine Identity credentials |
+| `INFISICAL_CLIENT_SECRET` | Machine Identity credentials |
+| `INFISICAL_PROJECT_ID` | Dari URL: `app.infisical.com/project/XXX/secrets` |
+| `INFISICAL_ENV` | `dev`, `staging`, atau `prod` |
+
+> 💡 Semua secret aplikasi (TELEGRAM_BOT_TOKEN, GEMINI_API_KEY, dll) disimpan di Infisical Cloud. Lihat [Setup Infisical](#-setup-infisical) di bawah.
+
+### Bot Settings
+
 | Variable | Default | Keterangan |
 | :--- | :--- | :--- |
 | `HEADLINEBOT_VERSION` | `prod` | Versi: `prod` (branch main) atau `beta` (branch beta) |
-| `TELEGRAM_BOT_TOKEN` | — | Token dari BotFather (**wajib**) |
-| `TELEGRAM_CHAT_ID` | — | ID chat admin (**wajib**) |
-| `GEMINI_API_KEY` | — | Google AI Studio key *(⚠️ fitur Gemini sementara nonaktif)* |
 | `ENABLE_GEMINI_FEATURES` | `false` | Enable summary/retouch/photo *(⚠️ sementara `false`)* |
 | `MODEL_SIZE` | `large-v2` | Whisper model size |
 | `BOT_FILESIZE_LIMIT` | `20` | Max MB per file |
@@ -274,7 +353,7 @@ else:
 
 # Install & jalankan ruff
 subprocess.run(['pip', 'install', 'ruff', '-q'])
-subprocess.run(['ruff', 'check', '.', '--fix', '--unsafe-fixes', '--output-format=concise'])
+subprocess.run(['ruff', 'check', '.', '--output-format=concise'])
 ```
 
 > **Kaggle:** Pastikan Internet access diaktifkan di Settings sebelum menjalankan lint.

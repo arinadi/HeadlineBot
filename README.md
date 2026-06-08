@@ -91,24 +91,22 @@ _base = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}'
 
 # ── Load Secrets dari Infisical ──
 print("🔐 Loading secrets from Infisical...")
-!pip install infisicalsdk -q
-from infisical_sdk import InfisicalSDKClient
+import requests
 from google.colab import userdata
 
-client = InfisicalSDKClient(host="https://app.infisical.com")
-client.auth.universal_auth.login(
-    client_id=userdata.get("INFISICAL_CLIENT_ID"),
-    client_secret=userdata.get("INFISICAL_CLIENT_SECRET")
-)
-resp = client.secrets.list_secrets(
-    project_id=userdata.get("INFISICAL_PROJECT_ID"),
-    environment_slug=userdata.get("INFISICAL_ENV", "dev"),
-    secret_path="/",
-    view_secret_value=True
-)
-for s in resp.secrets:
-    os.environ[s.secretKey] = s.secretValue
-print(f"✅ {len(resp.secrets)} secrets loaded: {[k for k in ['TELEGRAM_BOT_TOKEN','GEMINI_API_KEY'] if os.environ.get(k)]}")
+_login = requests.post("https://app.infisical.com/api/v1/auth/universal-auth/login",
+    json={"clientId": userdata.get("INFISICAL_CLIENT_ID"),
+          "clientSecret": userdata.get("INFISICAL_CLIENT_SECRET")}).json()
+_token = _login["accessToken"]
+
+_resp = requests.get("https://app.infisical.com/api/v4/secrets",
+    headers={"Authorization": f"Bearer {_token}"},
+    params={"projectId": userdata.get("INFISICAL_PROJECT_ID"),
+            "environment": userdata.get("INFISICAL_ENV", "dev"),
+            "secretPath": "/", "viewSecretValue": "true"}).json()
+for s in _resp["secrets"]:
+    os.environ[s["secretKey"]] = s["secretValue"]
+print(f"✅ {len(_resp['secrets'])} secrets loaded: {[k for k in ['TELEGRAM_BOT_TOKEN','GEMINI_API_KEY'] if os.environ.get(k)]}")
 os.environ['SECRETS_LOADED'] = '1'
 
 # ── Download & Jalankan Runner ──
@@ -150,32 +148,29 @@ _base = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}'
 
 # ── Load Secrets dari Infisical ──
 print("🔐 Loading secrets from Infisical...")
-!pip install infisicalsdk -q
-from infisical_sdk import InfisicalSDKClient
+import requests
 from kaggle_secrets import UserSecretsClient
-
 _secrets = UserSecretsClient()
-client = InfisicalSDKClient(host="https://app.infisical.com")
-client.auth.universal_auth.login(
-    client_id=_secrets.get_secret("INFISICAL_CLIENT_ID"),
-    client_secret=_secrets.get_secret("INFISICAL_CLIENT_SECRET")
-)
-resp = client.secrets.list_secrets(
-    project_id=_secrets.get_secret("INFISICAL_PROJECT_ID"),
-    environment_slug=_secrets.get_secret("INFISICAL_ENV") or "dev",
-    secret_path="/",
-    view_secret_value=True
-)
-for s in resp.secrets:
-    os.environ[s.secretKey] = s.secretValue
-print(f"✅ {len(resp.secrets)} secrets loaded: {[k for k in ['TELEGRAM_BOT_TOKEN','GEMINI_API_KEY'] if os.environ.get(k)]}")
+
+_login = requests.post("https://app.infisical.com/api/v1/auth/universal-auth/login",
+    json={"clientId": _secrets.get_secret("INFISICAL_CLIENT_ID"),
+          "clientSecret": _secrets.get_secret("INFISICAL_CLIENT_SECRET")}).json()
+_token = _login["accessToken"]
+
+_resp = requests.get("https://app.infisical.com/api/v4/secrets",
+    headers={"Authorization": f"Bearer {_token}"},
+    params={"projectId": _secrets.get_secret("INFISICAL_PROJECT_ID"),
+            "environment": _secrets.get_secret("INFISICAL_ENV") or "dev",
+            "secretPath": "/", "viewSecretValue": "true"}).json()
+for s in _resp["secrets"]:
+    os.environ[s["secretKey"]] = s["secretValue"]
+print(f"✅ {len(_resp['secrets'])} secrets loaded: {[k for k in ['TELEGRAM_BOT_TOKEN','GEMINI_API_KEY'] if os.environ.get(k)]}")
 os.environ['SECRETS_LOADED'] = '1'
 
 # ── Download & Jalankan Runner ──
 urllib.request.urlretrieve(f'{_base}/runner.py', 'runner.py')
 print(f'✅ runner.py [{_branch}] loaded')
 
-# Jalankan (streaming)
 proc = subprocess.Popen(['python', 'runner.py'],
     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     bufsize=1, universal_newlines=True)

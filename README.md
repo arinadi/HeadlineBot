@@ -102,7 +102,7 @@ _token = _login["accessToken"]
 _resp = requests.get("https://app.infisical.com/api/v4/secrets",
     headers={"Authorization": f"Bearer {_token}"},
     params={"projectId": userdata.get("INFISICAL_PROJECT_ID"),
-            "environment": userdata.get("INFISICAL_ENV", "dev"),
+            "environment": userdata.get("INFISICAL_ENV") or "dev",
             "secretPath": "/", "viewSecretValue": "true"}).json()
 for s in _resp["secrets"]:
     os.environ[s["secretKey"]] = s["secretValue"]

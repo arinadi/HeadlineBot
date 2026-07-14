@@ -31,7 +31,7 @@ Jurnalis lapangan tidak punya waktu menunggu. HeadlineBot dirancang khusus untuk
 HeadlineBot menggunakan [Infisical Cloud](https://app.infisical.com) untuk manajemen secret yang terpusat dan terenkripsi end-to-end.
 
 **Keuntungan:**
-- Cukup simpan **2 secret** di Kaggle/Colab (bukan 5)
+- Cukup simpan **4 secret** di Kaggle/Colab (bukan 5)
 - Update secret di satu tempat, otomatis berlaku di semua notebook
 - Audit log — siapa akses secret, kapan, dari mana
 - E2E encrypted — bahkan Infisical tidak bisa baca valuemu
@@ -81,6 +81,7 @@ Di Colab tab **Secrets** (ikon kunci 🔑), tambahkan:
 **3. Jalankan**
 
 ```python
+# 📰 HeadlineBot — Your AI Journalist Assistant — Colab Edition
 import os, subprocess, urllib.request
 
 # ── Set Versi ──
@@ -138,10 +139,10 @@ Di Kaggle notebook menu **Add-ons > Secrets** (atau panel kiri), tambahkan:
 **3. Jalankan**
 
 ```python
+# 📰 HeadlineBot — Your AI Journalist Assistant — Kaggle Edition
 import os, subprocess, urllib.request
 
 # ── Set Versi ──
-VERSION = 'prod'  # ← 'prod' atau 'beta'
 os.environ['HEADLINEBOT_VERSION'] = VERSION
 _branch = 'beta' if VERSION == 'beta' else 'main'
 _base = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}'
@@ -193,7 +194,7 @@ for line in proc.stdout:
 ### 🎙️ Transkripsi Cepat
 Kirim audio atau video. HeadlineBot mengubahnya menjadi teks lengkap tanpa timestamp.
 - **GPU Mode**: Whisper large-v2 — akurasi tinggi, tanpa batas durasi
-- **CPU Mode**: Gemini Cloud — otomatis pilih model terbaru *(⚠️ sementara nonaktif, sedang research solusi lain)*
+- **CPU Mode**: Gemini Cloud — otomatis pilih model terbaru (fallback otomatis jika Whisper gagal download)
 - **Format**: MP3, MP4, WAV, M4A, WEBM, OGG, FLAC, MKV
 
 ### 📝 Ringkasan Jurnalistik
@@ -250,24 +251,25 @@ Kirim arsip ZIP berpartisi (.zip.01, .zip.02, dst). HeadlineBot akan:
 - **Gradio** — Web UI alternatif untuk upload file besar
 
 ---
-
 ## 📂 File Structure
+
 
 ```
 HeadlineBot/
-├── main.py              # Core bot — handlers, queue, worker
-├── infisical_loader.py  # Infisical Cloud secret management (E2E encrypted)
-├── model_manager.py     # Smart model discovery — auto-detect flash/gemma, version sort
-├── image_editor.py      # AI color correction pipeline (Gemma 4 + OpenCV)
-├── bot_classes.py       # JobManager, FilesHandler
-├── utils.py             # Summarization, retouch, formatting, Gemini API
-├── config.py            # Konfigurasi via environment variables
-├── start.py             # GPU/CPU detection, launcher
-├── runner.py            # Colab/Kaggle entry point (branch-aware: prod/beta)
-├── gradio_handler.py    # Web UI untuk file besar
-├── .env.example         # Template environment variables untuk local dev
-├── requirements.txt     # GPU dependencies
-└── requirements_cpu.txt # CPU-only dependencies
+├── headlinebot/           # Package — semua library bot
+│   ├── __init__.py
+│   ├── bot_classes.py     # JobManager, IdleMonitor, FilesHandler
+│   ├── config.py          # Konfigurasi via environment variables
+│   ├── secrets.py         # Infisical Cloud secret management (E2E encrypted)
+│   ├── model_manager.py   # Smart model discovery — auto-detect flash/gemma
+│   ├── image_editor.py    # AI color correction pipeline (Gemma 4 + OpenCV)
+│   ├── gradio_handler.py  # Web UI untuk file besar
+│   └── utils.py           # Summarization, retouch, formatting, platform detection
+├── main.py                # Core bot — handlers, queue, worker
+├── start.py               # GPU/CPU detection, launcher
+├── runner.py              # Colab/Kaggle entry point (branch-aware: prod/beta)
+├── requirements.txt       # Dependencies (GPU + CPU)
+└── requirements_cpu.txt   # CPU-only dependencies
 ```
 
 ---
@@ -277,12 +279,11 @@ HeadlineBot/
 ```bash
 git clone https://github.com/arinadi/HeadlineBot.git
 cd HeadlineBot
-cp .env.example .env  # Isi dengan values-mu
-bash setup_uv.sh      # Auto-detect hardware & install
+pip install -r requirements.txt
 python start.py
 ```
 
-> **Local mode**: Bisa pakai Infisical (set `INFISICAL_*` di `.env`) atau set langsung secret di `.env`.
+> **Local mode**: Set `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET`, `INFISICAL_PROJECT_ID`, `INFISICAL_ENV` di environment variables, atau set langsung `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `GEMINI_API_KEY`.
 
 ---
 

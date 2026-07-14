@@ -12,8 +12,6 @@ import asyncio
 import gc
 import os
 
-# Force hf_transfer over Xet BEFORE huggingface_hub is imported (Xet hangs on Colab)
-os.environ.setdefault('HF_HUB_ENABLE_HF_TRANSFER', '1')
 import sys
 import time
 import uuid

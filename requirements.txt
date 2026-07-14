@@ -1,7 +1,6 @@
 ffmpeg-python
 python-telegram-bot
 faster-whisper
-hf-transfer
 google-genai
 gradio>=4.0.0
 nest_asyncio

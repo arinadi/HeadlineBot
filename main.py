@@ -279,7 +279,6 @@ async def initialize_models_background():
         if MODE == 'WHISPER':
             import torch
             from faster_whisper import WhisperModel
-            log("INIT", f"Loading Whisper ({WHISPER_MODEL}, {device})...")
             # Logic for compute_type
             compute_type = "float16" if device == "cuda" else "int8"
 
@@ -292,13 +291,27 @@ async def initialize_models_background():
             elif prec_cfg == 'int8':
                 compute_type = "int8"
 
-            model = await asyncio.to_thread(
-                WhisperModel,
-                WHISPER_MODEL,
-                device=device,
-                compute_type=compute_type
-            )
-            log("INIT", f"Whisper loaded ({compute_type})")
+            # Enable HF debug logging for visibility during download
+            import logging as _logging
+            _logging.getLogger("huggingface_hub").setLevel(_logging.INFO)
+            hf_token = os.getenv("HF_TOKEN", "")
+            log("INIT", f"Downloading {WHISPER_MODEL} from HF Hub (token={'set' if hf_token else 'not set'}, timeout=10m)...")
+            start_ts = time.time()
+
+            try:
+                model = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        WhisperModel,
+                        WHISPER_MODEL,
+                        device=device,
+                        compute_type=compute_type
+                    ),
+                    timeout=600
+                )
+                elapsed = time.time() - start_ts
+                log("INIT", f"Whisper loaded ({compute_type}) in {elapsed:.0f}s")
+            except asyncio.TimeoutError:
+                raise RuntimeError(f"Whisper download timed out after 10 minutes. HF Hub may be unreachable.")
 
         if SHUTDOWN_IN_PROGRESS: return
 

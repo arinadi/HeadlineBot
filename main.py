@@ -25,6 +25,7 @@ from utils import format_duration, get_runtime, log, retouch_transcript, set_mod
 
 # --- Transcription Mode ---
 MODE = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')
+os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
 
 # --- External Libraries (Core) ---
 try:

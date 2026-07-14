@@ -12,7 +12,6 @@ User stores 4 secrets in Kaggle/Colab:
 """
 
 import os
-
 import requests
 from headlinebot.utils import detect_platform
 

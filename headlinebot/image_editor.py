@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from utils import log
+from headlinebot.utils import log
 
 # ─────────────────────────────────────────────────
 # ⚙️  CONFIGURATION

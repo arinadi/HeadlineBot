@@ -3,7 +3,23 @@ import os
 import time
 from datetime import datetime
 
-import config
+from headlinebot import config
+
+# --- Platform Detection ---
+
+def detect_platform():
+    """Detect runtime: Kaggle, Colab, or Local."""
+    try:
+        from kaggle_secrets import UserSecretsClient  # noqa: F401
+        return "kaggle"
+    except ImportError:
+        pass
+    try:
+        from google.colab import userdata  # noqa: F401
+        return "colab"
+    except ImportError:
+        pass
+    return "local"
 
 # --- Logging Utilities (Merged from log_utils.py) ---
 
@@ -177,19 +193,6 @@ def format_duration(seconds: float) -> str:
     minutes, remaining_seconds = divmod(int(seconds), 60)
     return f"{minutes}m {remaining_seconds:02d}s"
 
-def format_timestamp(seconds: float) -> str:
-    """Formats seconds into [HH:MM:SS] or [MM:SS]."""
-    if not isinstance(seconds, (int, float)) or seconds < 0:
-        return "[00:00]"
-
-    seconds = int(seconds)
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
-    secs = seconds % 60
-
-    if hours > 0:
-        return f"[{hours:02d}:{minutes:02d}:{secs:02d}]"
-    return f"{minutes:02d}:{secs:02d}"
 
 def get_val(seg, key, default=0.0):
     """Helper to safely access attributes (handles dict vs object)."""

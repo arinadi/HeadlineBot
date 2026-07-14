@@ -7,7 +7,7 @@
 import asyncio
 import re
 
-from utils import log
+from headlinebot.utils import log
 
 # Transient errors that warrant retry before fallback
 _TRANSIENT_ERRORS = (

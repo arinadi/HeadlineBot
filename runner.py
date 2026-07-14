@@ -38,19 +38,7 @@ def run_command_streaming(cmd):
     process.wait()
     return process.returncode
 
-def detect_platform():
-    """Detect runtime: Kaggle, Colab, or Local."""
-    try:
-        from kaggle_secrets import UserSecretsClient
-        return "kaggle"
-    except ImportError:
-        pass
-    try:
-        from google.colab import userdata
-        return "colab"
-    except ImportError:
-        pass
-    return "local"
+from headlinebot.utils import detect_platform
 
 def resolve_version():
     """Resolve HEADLINEBOT_VERSION env var to branch name."""
@@ -63,7 +51,7 @@ def resolve_version():
 
 def load_secrets(platform):
     """Load secrets into os.environ via Infisical (or platform-native fallback)."""
-    from infisical_loader import load_all_secrets
+    from headlinebot.secrets import load_all_secrets
     return load_all_secrets(platform=platform)
 
 def verify_secrets(platform):

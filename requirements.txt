@@ -1,8 +1,13 @@
 ffmpeg-python
-python-telegram-bot
 faster-whisper
 google-genai
 gradio>=4.0.0
+httpx>=0.28.1
+more-itertools
 nest_asyncio
 opencv-python-headless
 Pillow
+python-telegram-bot
+requests
+tqdm
+werkzeug

@@ -16,23 +16,7 @@ import os
 import requests
 
 INFISICAL_API = "https://app.infisical.com/api/v1"
-
-
-def detect_platform():
-    """Detect runtime: Kaggle, Colab, or Local."""
-    try:
-        from kaggle_secrets import UserSecretsClient  # noqa: F401
-        return "kaggle"
-    except ImportError:
-        pass
-    try:
-        from google.colab import userdata  # noqa: F401
-        return "colab"
-    except ImportError:
-        pass
-    return "local"
-
-
+from headlinebot.utils import detect_platform
 def get_infisical_credentials(platform=None):
     """Retrieve Infisical credentials from platform-native secret stores."""
     if platform is None:
@@ -140,46 +124,11 @@ def load_all_secrets(platform=None):
             print(f"❌ Infisical failed: {e}", flush=True)
             print("⚠️ Falling back to platform-native secrets...", flush=True)
 
-    # Fallback: legacy platform-native secrets
     if platform in ("kaggle", "colab"):
-        print("🔑 Loading from platform-native store (legacy)...", flush=True)
-        return _load_platform_secrets(platform)
+        print("⚠️ Infisical not configured. Platform-native secrets unavailable.", flush=True)
+        return {}
 
     print("🔑 Using environment variables (local mode)", flush=True)
     return {}
 
 
-def _load_platform_secrets(platform):
-    """Legacy fallback: load from Kaggle/Colab native stores."""
-    keys = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "GEMINI_API_KEY", "GITHUB_TOKEN", "HF_TOKEN"]
-    result = {}
-
-    if platform == "kaggle":
-        from kaggle_secrets import UserSecretsClient
-        client = UserSecretsClient()
-        for k in keys:
-            try:
-                v = client.get_secret(k)
-                if v:
-                    os.environ[k] = str(v)
-                    result[k] = str(v)
-                    print(f"  ✅ {k}", flush=True)
-            except Exception:
-                pass
-
-    elif platform == "colab":
-        from google.colab import userdata
-        for k in keys:
-            try:
-                v = userdata.get(k)
-                if v:
-                    os.environ[k] = str(v)
-                    result[k] = str(v)
-                    print(f"  ✅ {k}", flush=True)
-            except Exception:
-                pass
-
-    if not result:
-        print("  ⚠️ No secrets found!", flush=True)
-
-    return result

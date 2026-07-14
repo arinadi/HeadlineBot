@@ -17,12 +17,12 @@ import time
 import uuid
 
 # --- Local Imports ---
-import config
-from bot_classes import FilesHandler, IdleMonitor, Job, JobManager
-from config import Config
-from image_editor import edit_image
-from model_manager import discover_models
-from utils import format_duration, get_runtime, log, retouch_transcript, set_model_chains, summarize_text
+from headlinebot import config
+from headlinebot.bot_classes import FilesHandler, IdleMonitor, Job, JobManager
+from headlinebot.config import Config
+from headlinebot.image_editor import edit_image
+from headlinebot.model_manager import discover_models
+from headlinebot.utils import format_duration, get_runtime, log, retouch_transcript, set_model_chains, summarize_text
 
 # --- Transcription Mode ---
 MODE = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')
@@ -466,7 +466,7 @@ async def update_startup_message(gradio_url: str = None):
 def run_transcription_process(job: Job) -> tuple[str, str]:
     """Runs the blocking Whisper transcription in a separate thread."""
     # Note: This runs in a thread, so we use print directly (log_utils works here too)
-    from utils import log
+    from headlinebot.utils import log
     log("WHISPER", f"[{job.job_id}] Transcribing {job.original_filename}...")
 
     transcribe_options = {
@@ -497,7 +497,7 @@ def run_transcription_process(job: Job) -> tuple[str, str]:
     segments = list(segments_generator)
 
     # Use native formatting (Raw segments from Whisper)
-    from utils import format_transcription_native
+    from headlinebot.utils import format_transcription_native
     formatted_text = format_transcription_native(segments)
 
 
@@ -549,7 +549,7 @@ async def _process_transcript_job(job: Job, start_time: float):
 
     # 1. Transcribe
     if MODE == 'GEMINI':
-        from utils import transcribe_with_gemini
+        from headlinebot.utils import transcribe_with_gemini
         transcript_text, detected_language = await transcribe_with_gemini(job.local_filepath, gemini_client)
     else:
         transcript_text, detected_language = await asyncio.to_thread(run_transcription_process, job)

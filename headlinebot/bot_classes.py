@@ -17,8 +17,8 @@ from telegram.constants import ParseMode
 from telegram.ext import Application, ContextTypes
 from werkzeug.utils import secure_filename
 
-from config import TELEGRAM_CHAT_ID, Config
-from utils import log
+from headlinebot.config import TELEGRAM_CHAT_ID, Config
+from headlinebot.utils import log
 
 # Image file extensions
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'}

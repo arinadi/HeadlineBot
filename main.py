@@ -294,13 +294,12 @@ async def initialize_models_background():
                 compute_type = "int8"
 
             # Download model files via raw HTTP (bypass Xet which hangs on Colab)
-            from huggingface_hub import list_repo_files, hf_hub_url
+            # Hardcoded file list for CTranslate2 model (no HF API needed)
+            _files = ["config.json", "model.bin", "tokenizer.json", "vocabulary.txt"]
+            log("INIT", f"Downloading {len(_files)} files for {WHISPER_MODEL} via raw HTTP...")
             _repo = "Systran/faster-whisper-large-v2" if WHISPER_MODEL == "large-v2" else f"Systran/faster-whisper-{WHISPER_MODEL}"
             _local_dir = os.path.expanduser(f"~/.cache/whisper_models/{WHISPER_MODEL}")
             os.makedirs(_local_dir, exist_ok=True)
-
-            _files = await asyncio.to_thread(list_repo_files, _repo)
-            log("INIT", f"Downloading {len(_files)} files for {WHISPER_MODEL} via raw HTTP...")
 
             import requests as _req
             hf_token = os.getenv("HF_TOKEN", "")
@@ -311,7 +310,7 @@ async def initialize_models_background():
                 _dest = os.path.join(_local_dir, _fname)
                 if os.path.exists(_dest):
                     continue
-                _url = hf_hub_url(_repo, _fname, revision="main")
+                _url = f"https://huggingface.co/{_repo}/resolve/main/{_fname}"
                 log("INIT", f"  Downloading: {_fname}")
                 _resp = await asyncio.to_thread(_req.get, _url, headers=_headers, stream=True, timeout=(10, 300))
                 _resp.raise_for_status()

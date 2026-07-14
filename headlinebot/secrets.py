@@ -15,7 +15,7 @@ import os
 
 import requests
 
-INFISICAL_API = "https://app.infisical.com/api/v1"
+from headlinebot.utils import detect_platform
 from headlinebot.utils import detect_platform
 def get_infisical_credentials(platform=None):
     """Retrieve Infisical credentials from platform-native secret stores."""

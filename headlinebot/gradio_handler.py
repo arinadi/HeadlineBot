@@ -102,7 +102,7 @@ async def _queue_gradio_job(file_path: str, filename: str, chat_id: int):
     try:
         import ffmpeg
 
-        from bot_classes import Job
+        from headlinebot.bot_classes import Job
 
         # Probe audio duration
         probe = await asyncio.to_thread(ffmpeg.probe, file_path)

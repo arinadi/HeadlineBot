@@ -3,6 +3,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from headlinebot.utils import detect_platform
 
 # Force unbuffered output (critical for Kaggle)
 os.environ['PYTHONUNBUFFERED'] = '1'
@@ -38,7 +39,6 @@ def run_command_streaming(cmd):
     process.wait()
     return process.returncode
 
-from headlinebot.utils import detect_platform
 
 def resolve_version():
     """Resolve HEADLINEBOT_VERSION env var to branch name."""

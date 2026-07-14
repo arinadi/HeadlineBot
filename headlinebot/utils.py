@@ -144,7 +144,7 @@ async def summarize_text(transcript: str, gemini_client) -> str:
 
     from google.genai import types
 
-    from model_manager import try_model_chain
+    from headlinebot.model_manager import try_model_chain
 
     chain = get_model_chain("summary")
     config = types.GenerateContentConfig(temperature=0.3)
@@ -171,7 +171,7 @@ async def retouch_transcript(transcript: str, gemini_client) -> str:
 
     from google.genai import types
 
-    from model_manager import try_model_chain
+    from headlinebot.model_manager import try_model_chain
 
     chain = get_model_chain("retouch")
     config = types.GenerateContentConfig(temperature=0.3)
@@ -262,7 +262,7 @@ async def transcribe_with_gemini(local_filepath: str, gemini_client) -> tuple[st
             "- Simply ensure there is a blank line between every sentence for readability."
         )
 
-        from model_manager import try_model_chain
+        from headlinebot.model_manager import try_model_chain
         chain = get_model_chain("transcript")
 
         response = await try_model_chain(

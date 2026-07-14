@@ -293,48 +293,52 @@ async def initialize_models_background():
             elif prec_cfg == 'int8':
                 compute_type = "int8"
 
-            # Pre-flight: test HF Hub connectivity before attempting download
-            try:
-                import requests as _req
-                r = await asyncio.to_thread(_req.get, "https://huggingface.co", timeout=10)
-                log("INIT", f"HF Hub reachable (status={r.status_code})")
-            except Exception as e:
-                log("ERROR", f"HF Hub unreachable: {e}")
-                raise RuntimeError(f"Cannot reach Hugging Face Hub ({e}). Colab may be blocking it.")
+            # Download model files via raw HTTP (bypass Xet which hangs on Colab)
+            from huggingface_hub import list_repo_files, hf_hub_url
+            _repo = "Systran/faster-whisper-large-v2" if WHISPER_MODEL == "large-v2" else f"Systran/faster-whisper-{WHISPER_MODEL}"
+            _local_dir = os.path.expanduser(f"~/.cache/whisper_models/{WHISPER_MODEL}")
+            os.makedirs(_local_dir, exist_ok=True)
 
-            # Enable verbose logging for all HF/HTTP layers during download
-            import logging as _logging
-            for _name in ("huggingface_hub", "urllib3", "requests", "httpx"):
-                _logging.getLogger(_name).setLevel(_logging.DEBUG)
-            os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "30")
-            os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
-            # Cleanup stale lock files from previous interrupted downloads
-            import glob as _glob
-            _lock_dir = os.path.expanduser("~/.cache/huggingface/hub/.locks")
-            for _lf in _glob.glob(f"{_lock_dir}/**/*.lock", recursive=True):
-                try:
-                    os.remove(_lf)
-                    log("INIT", f"Removed stale lock: {_lf}")
-                except OSError:
-                    pass
+            _files = await asyncio.to_thread(list_repo_files, _repo)
+            log("INIT", f"Downloading {len(_files)} files for {WHISPER_MODEL} via raw HTTP...")
+
+            import requests as _req
             hf_token = os.getenv("HF_TOKEN", "")
-            log("INIT", f"Downloading {WHISPER_MODEL} from HF Hub (token={'set' if hf_token else 'not set'}, timeout=10m)...")
+            _headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
             start_ts = time.time()
 
-            try:
-                model = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        WhisperModel,
-                        WHISPER_MODEL,
-                        device=device,
-                        compute_type=compute_type
-                    ),
-                    timeout=600
-                )
-                elapsed = time.time() - start_ts
-                log("INIT", f"Whisper loaded ({compute_type}) in {elapsed:.0f}s")
-            except asyncio.TimeoutError:
-                raise RuntimeError(f"Whisper download timed out after 10 minutes. HF Hub may be unreachable.")
+            for _fname in sorted(_files):
+                _dest = os.path.join(_local_dir, _fname)
+                if os.path.exists(_dest):
+                    continue
+                _url = hf_hub_url(_repo, _fname, revision="main")
+                log("INIT", f"  Downloading: {_fname}")
+                _resp = await asyncio.to_thread(_req.get, _url, headers=_headers, stream=True, timeout=(10, 300))
+                _resp.raise_for_status()
+                _total = int(_resp.headers.get("content-length", 0))
+                _downloaded = 0
+                with open(_dest + ".part", "wb") as _f:
+                    for _chunk in _resp.iter_content(chunk_size=8*1024*1024):
+                        _f.write(_chunk)
+                        _downloaded += len(_chunk)
+                        if _total:
+                            _pct = _downloaded * 100 // _total
+                            if _pct % 20 == 0:
+                                log("INIT", f"    {_fname}: {_pct}%")
+                os.rename(_dest + ".part", _dest)
+                _size_mb = os.path.getsize(_dest) / (1024*1024)
+                log("INIT", f"  Done: {_fname} ({_size_mb:.0f}MB)")
+
+            elapsed = time.time() - start_ts
+            log("INIT", f"All {len(_files)} files downloaded in {elapsed:.0f}s")
+
+            model = await asyncio.to_thread(
+                WhisperModel,
+                _local_dir,
+                device=device,
+                compute_type=compute_type
+            )
+            log("INIT", f"Whisper loaded ({compute_type})")
 
         if SHUTDOWN_IN_PROGRESS: return
 

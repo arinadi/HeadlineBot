@@ -299,9 +299,11 @@ async def initialize_models_background():
                 log("ERROR", f"HF Hub unreachable: {e}")
                 raise RuntimeError(f"Cannot reach Hugging Face Hub ({e}). Colab may be blocking it.")
 
-            # Enable HF debug logging for visibility during download
+            # Enable verbose logging for all HF/HTTP layers during download
             import logging as _logging
-            _logging.getLogger("huggingface_hub").setLevel(_logging.INFO)
+            for _name in ("huggingface_hub", "urllib3", "requests", "httpx"):
+                _logging.getLogger(_name).setLevel(_logging.DEBUG)
+            os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "30")
             hf_token = os.getenv("HF_TOKEN", "")
             log("INIT", f"Downloading {WHISPER_MODEL} from HF Hub (token={'set' if hf_token else 'not set'}, timeout=10m)...")
             start_ts = time.time()

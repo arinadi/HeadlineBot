@@ -304,6 +304,7 @@ async def initialize_models_background():
             for _name in ("huggingface_hub", "urllib3", "requests", "httpx"):
                 _logging.getLogger(_name).setLevel(_logging.DEBUG)
             os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "30")
+            os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
             hf_token = os.getenv("HF_TOKEN", "")
             log("INIT", f"Downloading {WHISPER_MODEL} from HF Hub (token={'set' if hf_token else 'not set'}, timeout=10m)...")
             start_ts = time.time()

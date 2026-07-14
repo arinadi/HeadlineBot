@@ -27,6 +27,7 @@ def main():
 
     # Set Environment Variable
     os.environ['TRANSCRIPTION_MODE'] = mode
+    os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
     # Launch main.py
     print(f"🚀 Starting HeadlineBot in {mode} Mode...")

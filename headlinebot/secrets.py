@@ -14,9 +14,9 @@ User stores 4 secrets in Kaggle/Colab:
 import os
 
 import requests
+from headlinebot.utils import detect_platform
 
-from headlinebot.utils import detect_platform
-from headlinebot.utils import detect_platform
+INFISICAL_API = "https://app.infisical.com/api/v1"
 def get_infisical_credentials(platform=None):
     """Retrieve Infisical credentials from platform-native secret stores."""
     if platform is None:

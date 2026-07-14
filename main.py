@@ -25,7 +25,6 @@ from utils import format_duration, get_runtime, log, retouch_transcript, set_mod
 
 # --- Transcription Mode ---
 MODE = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')
-os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
 
 # --- External Libraries (Core) ---
 try:
@@ -328,7 +327,26 @@ async def initialize_models_background():
     except Exception as e:
         if SHUTDOWN_IN_PROGRESS: return
         log("ERROR", f"Initialization failed: {e}")
-        await send_telegram_notification(application, f"❌ *FATAL:* Initialization failed:\n`{str(e)}`")
+        if MODE == 'WHISPER':
+            log("INIT", "Whisper unavailable, falling back to Gemini Cloud...")
+            await send_telegram_notification(application, f"⚠️ *Whisper unavailable.* Falling back to Gemini Cloud.\nError: `{str(e)[:150]}`")
+            MODE = 'GEMINI'
+            os.environ['TRANSCRIPTION_MODE'] = 'GEMINI'
+            device = "cpu"
+            try:
+                if GEMINI_API_KEY:
+                    from google import genai
+                    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+                    model_chains = await discover_models(gemini_client)
+                    set_model_chains(model_chains)
+                    log("INIT", "Gemini ready (fallback)")
+                models_ready_event.set()
+                await update_startup_message()
+                await send_telegram_notification(application, "🛎️ *Kitchen is now open!* Running on Gemini Cloud.")
+                return
+            except Exception as e2:
+                log("ERROR", f"Gemini fallback also failed: {e2}")
+                await send_telegram_notification(application, f"❌ *FATAL:* Both Whisper & Gemini failed:\n`{str(e2)}`")
         await perform_shutdown("AI Model Loading Failed")
 
 

@@ -25,7 +25,6 @@ from utils import format_duration, get_runtime, log, retouch_transcript, set_mod
 
 # --- Transcription Mode ---
 MODE = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')
-os.environ.setdefault("HF_XET_HIGH_PERFORMANCE", "1")
 
 # --- External Libraries (Core) ---
 try:
@@ -290,6 +289,15 @@ async def initialize_models_background():
                 compute_type = "float16"
             elif prec_cfg == 'int8':
                 compute_type = "int8"
+
+            # Pre-flight: test HF Hub connectivity before attempting download
+            try:
+                import requests as _req
+                r = await asyncio.to_thread(_req.get, "https://huggingface.co", timeout=10)
+                log("INIT", f"HF Hub reachable (status={r.status_code})")
+            except Exception as e:
+                log("ERROR", f"HF Hub unreachable: {e}")
+                raise RuntimeError(f"Cannot reach Hugging Face Hub ({e}). Colab may be blocking it.")
 
             # Enable HF debug logging for visibility during download
             import logging as _logging

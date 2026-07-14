@@ -254,6 +254,8 @@ class JobManager:
         return True, job.original_filename
 
     def is_idle(self) -> bool:
+        if not self.models_ready_event.is_set():
+            return False
         return self.job_queue.empty() and self.currently_processing is None
 
     def get_queued_jobs(self) -> list[Job]:

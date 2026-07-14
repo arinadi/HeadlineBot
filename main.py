@@ -305,6 +305,15 @@ async def initialize_models_background():
                 _logging.getLogger(_name).setLevel(_logging.DEBUG)
             os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "30")
             os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+            # Cleanup stale lock files from previous interrupted downloads
+            import glob as _glob
+            _lock_dir = os.path.expanduser("~/.cache/huggingface/hub/.locks")
+            for _lf in _glob.glob(f"{_lock_dir}/**/*.lock", recursive=True):
+                try:
+                    os.remove(_lf)
+                    log("INIT", f"Removed stale lock: {_lf}")
+                except OSError:
+                    pass
             hf_token = os.getenv("HF_TOKEN", "")
             log("INIT", f"Downloading {WHISPER_MODEL} from HF Hub (token={'set' if hf_token else 'not set'}, timeout=10m)...")
             start_ts = time.time()

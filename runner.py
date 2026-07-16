@@ -3,7 +3,21 @@ import subprocess
 import sys
 import time
 import urllib.request
-from headlinebot.utils import detect_platform
+
+
+def detect_platform():
+    """Detect runtime: Kaggle, Colab, or Local."""
+    try:
+        from kaggle_secrets import UserSecretsClient  # noqa: F401
+        return "kaggle"
+    except ImportError:
+        pass
+    try:
+        from google.colab import userdata  # noqa: F401
+        return "colab"
+    except ImportError:
+        pass
+    return "local"
 
 # Force unbuffered output (critical for Kaggle)
 os.environ['PYTHONUNBUFFERED'] = '1'

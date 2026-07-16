@@ -304,27 +304,45 @@ async def initialize_models_background():
             _headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
             start_ts = time.time()
 
+            _max_retries = 3
             for _fname in sorted(_files):
                 _dest = os.path.join(_local_dir, _fname)
                 if os.path.exists(_dest):
                     continue
                 _url = f"https://huggingface.co/{_repo}/resolve/main/{_fname}"
-                log("INIT", f"  Downloading: {_fname}")
-                _resp = await asyncio.to_thread(_req.get, _url, headers=_headers, stream=True, timeout=(10, 300))
-                _resp.raise_for_status()
-                _total = int(_resp.headers.get("content-length", 0))
-                _downloaded = 0
-                with open(_dest + ".part", "wb") as _f:
-                    for _chunk in _resp.iter_content(chunk_size=8*1024*1024):
-                        _f.write(_chunk)
-                        _downloaded += len(_chunk)
-                        if _total:
-                            _pct = _downloaded * 100 // _total
-                            if _pct % 20 == 0:
-                                log("INIT", f"    {_fname}: {_pct}%")
-                os.rename(_dest + ".part", _dest)
-                _size_mb = os.path.getsize(_dest) / (1024*1024)
-                log("INIT", f"  Done: {_fname} ({_size_mb:.0f}MB)")
+                _downloaded = False
+                for _attempt in range(1, _max_retries + 1):
+                    try:
+                        log("INIT", f"  Downloading: {_fname}" + (f" (attempt {_attempt}/{_max_retries})" if _attempt > 1 else ""))
+                        _resp = await asyncio.to_thread(_req.get, _url, headers=_headers, stream=True, timeout=(10, 300))
+                        _resp.raise_for_status()
+                        _total = int(_resp.headers.get("content-length", 0))
+                        _downloaded_bytes = 0
+                        with open(_dest + ".part", "wb") as _f:
+                            for _chunk in _resp.iter_content(chunk_size=8*1024*1024):
+                                _f.write(_chunk)
+                                _downloaded_bytes += len(_chunk)
+                                if _total:
+                                    _pct = _downloaded_bytes * 100 // _total
+                                    if _pct % 20 == 0:
+                                        log("INIT", f"    {_fname}: {_pct}%")
+                        os.rename(_dest + ".part", _dest)
+                        _size_mb = os.path.getsize(_dest) / (1024*1024)
+                        log("INIT", f"  Done: {_fname} ({_size_mb:.0f}MB)")
+                        _downloaded = True
+                        break
+                    except Exception as _e:
+                        log("INIT", f"  ⚠️ {_fname} attempt {_attempt}/{_max_retries} failed: {_e}")
+                        # Clean partial download
+                        _part = _dest + ".part"
+                        if os.path.exists(_part):
+                            os.remove(_part)
+                        if _attempt < _max_retries:
+                            _delay = 2 ** _attempt
+                            log("INIT", f"  Retrying in {_delay}s...")
+                            await asyncio.sleep(_delay)
+                if not _downloaded:
+                    raise RuntimeError(f"Failed to download {_fname} after {_max_retries} attempts")
 
             elapsed = time.time() - start_ts
             log("INIT", f"All {len(_files)} files downloaded in {elapsed:.0f}s")

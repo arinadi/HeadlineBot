@@ -6,10 +6,16 @@ import sys
 
 
 def check_cuda():
-    """Checks if CUDA is available by querying nvidia-smi."""
+    """Checks if CUDA is available by querying nvidia-smi.
+
+    NOTE: nvidia-smi proves driver/GPU presence, not torch CUDA support.
+    main.py re-checks torch.cuda.is_available() after imports and degrades
+    device to CPU if torch lacks CUDA, even when MODE stays WHISPER.
+    If WHISPER on CPU proves too slow/OOM, set TRANSCRIPTION_MODE=GEMINI.
+    """
     try:
         subprocess.run(["nvidia-smi"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        return True, "GPU Detected"
+        return True, "GPU Detected (nvidia-smi; torch CUDA re-checked in main.py)"
     except (FileNotFoundError, subprocess.CalledProcessError):
         return False, "No GPU detected (nvidia-smi failed or missing)"
 

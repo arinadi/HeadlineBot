@@ -61,7 +61,15 @@ def main():
         shutil.rmtree(RUN_DIR)
     os.makedirs(RUN_DIR)
     with tarfile.open(tarball, "r:gz") as tf:
-        tf.extractall(RUN_DIR)
+        # Use data filter when available (3.12+), fallback otherwise.
+        try:
+            if hasattr(tarfile, "data_filter"):
+                tf.extractall(RUN_DIR, filter="data")
+            else:
+                tf.extractall(RUN_DIR)
+        except TypeError:
+            # Older Python without filter= kwarg
+            tf.extractall(RUN_DIR)
     app_dir = os.path.join(RUN_DIR, "HeadlineBot")
     if not os.path.isdir(app_dir):
         raise SystemExit("extracted tree has no HeadlineBot/ dir")

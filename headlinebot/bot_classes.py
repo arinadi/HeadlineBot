@@ -23,6 +23,42 @@ from headlinebot.utils import log
 # Image file extensions
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'}
 
+# Archive safety caps (Zip Slip hardening)
+MAX_ZIP_MEMBERS = 200
+MAX_ZIP_TOTAL_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB uncompressed
+
+
+def validate_zip_members(zip_ref: zipfile.ZipFile) -> list[str]:
+    """Validate ZIP members: no absolute/.. paths, no symlinks/dirs abuse, size caps."""
+    infos = zip_ref.infolist()
+    if len(infos) > MAX_ZIP_MEMBERS:
+        raise ValueError(f"Too many files in archive ({len(infos)} > {MAX_ZIP_MEMBERS})")
+    total = 0
+    valid: list[str] = []
+    for info in infos:
+        name = info.filename
+        # Skip directories and macOS metadata (handled by caller filter too)
+        if name.endswith('/'):
+            continue
+        if name.startswith(('__MACOSX', '.')):
+            continue
+        # Reject absolute paths and traversal
+        from pathlib import PurePosixPath
+        p = PurePosixPath(name)
+        if p.is_absolute() or ".." in p.parts:
+            raise ValueError(f"Unsafe path in archive: {name!r}")
+        # Reject symlinks / special types (ZipInfo external_attr >> 16 file type)
+        is_symlink = (info.external_attr >> 16) & 0o170000 == 0o120000
+        if is_symlink:
+            raise ValueError(f"Symlink not allowed in archive: {name!r}")
+        total += info.file_size
+        if total > MAX_ZIP_TOTAL_BYTES:
+            raise ValueError("Archive uncompressed size exceeds 2 GiB cap")
+        valid.append(name)
+    if not valid:
+        return []
+    return valid
+
 
 @dataclass
 class Job:
@@ -31,12 +67,30 @@ class Job:
     chat_id: int
     original_filename: str
     local_filepath: str
-    job_type: str  # "transcript" or "image"
+    job_type: str = "transcript"  # Literal["transcript", "image"] (kept str for compat)
     audio_duration: float = 0.0
-    author_display_name: str = field(init=False)
+    author_display_name: str = "Unknown"
     job_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     status: str = "queued"
-    _original_message: telegram.Message = field(repr=False, init=False)
+    _original_message: Any = field(default=None, repr=False)
+
+    @classmethod
+    def from_parts(cls, message_id: int, chat_id: int, filename: str, local_path: str,
+                   author: str = "Unknown", duration: float = 0.0,
+                   job_type: str = "transcript", original_message: Any = None):
+        """Create Job without fake telegram.Message objects."""
+        job = cls(
+            message_id=message_id,
+            chat_id=chat_id,
+            original_filename=filename,
+            local_filepath=local_path,
+            job_type=job_type,
+            audio_duration=duration,
+            author_display_name=author or "Unknown",
+        )
+        job._original_message = original_message
+        log("JOB", f"[{job.job_id}] Created ({job_type}): {filename} (by {job.author_display_name})")
+        return job
 
     @classmethod
     def from_message(cls, message: telegram.Message, local_path: str, duration: float = 0.0, job_type: str = "transcript"):
@@ -87,8 +141,22 @@ class IdleMonitor:
         self.alerts_sent = {'first_alert': False, 'final_warning': False}
         self.last_extend_time = 0
         self._task: asyncio.Task | None = None
-        log("INIT", f"IdleMonitor ready (alert={Config.IDLE_FIRST_ALERT_MINUTES}m, "
-                    f"warn={Config.IDLE_FINAL_WARNING_MINUTES}m, shutdown={Config.IDLE_SHUTDOWN_MINUTES}m)")
+        # Effective timeouts (minutes). Defaults from Config; may be overridden
+        # via set_effective_timeouts() before start() (e.g. 5x in GEMINI mode).
+        self.first_alert_minutes = Config.IDLE_FIRST_ALERT_MINUTES
+        self.final_warning_minutes = Config.IDLE_FINAL_WARNING_MINUTES
+        self.shutdown_minutes = Config.IDLE_SHUTDOWN_MINUTES
+        log("INIT", f"IdleMonitor ready (alert={self.first_alert_minutes}m, "
+                    f"warn={self.final_warning_minutes}m, shutdown={self.shutdown_minutes}m)")
+
+    def set_effective_timeouts(self, first_alert: int, final_warning: int, shutdown: int):
+        """Override idle timeouts (minutes). Call before start(). Resets pending timer."""
+        self.first_alert_minutes = first_alert
+        self.final_warning_minutes = final_warning
+        self.shutdown_minutes = shutdown
+        self.shutdown_on = None
+        self.alerts_sent = {'first_alert': False, 'final_warning': False}
+        log("INIT", f"IdleMonitor timeouts set to {first_alert}/{final_warning}/{shutdown}m")
 
     def start(self):
         if not self._task or self._task.done():
@@ -146,7 +214,7 @@ class IdleMonitor:
 
     async def _handle_shutdown(self):
         self.shutdown_imminent = True
-        shutdown_msg = f"🔴 Shutting down (idle {Config.IDLE_SHUTDOWN_MINUTES}m)"
+        shutdown_msg = f"🔴 Shutting down (idle {self.shutdown_minutes}m)"
         try:
             await self.app.bot.send_message(
                 chat_id=TELEGRAM_CHAT_ID,
@@ -179,20 +247,20 @@ class IdleMonitor:
                 if self.job_manager.is_idle():
                     # First time idle - set shutdown_on (absolute time)
                     if self.shutdown_on is None:
-                        self.shutdown_on = time.time() + (Config.IDLE_SHUTDOWN_MINUTES * 60)
-                        log("IDLE", f"Bot idle. Shutdown in {Config.IDLE_SHUTDOWN_MINUTES}m")
+                        self.shutdown_on = time.time() + (self.shutdown_minutes * 60)
+                        log("IDLE", f"Bot idle. Shutdown in {self.shutdown_minutes}m")
 
                     # Calculate times
                     remaining_minutes = (self.shutdown_on - time.time()) / 60
-                    elapsed_minutes = Config.IDLE_SHUTDOWN_MINUTES - remaining_minutes
+                    elapsed_minutes = self.shutdown_minutes - remaining_minutes
                     log("IDLE", f"Elapsed: {elapsed_minutes:.1f}m, Remaining: {remaining_minutes:.1f}m")
 
                     # 1. FIRST ALERT
-                    if elapsed_minutes >= Config.IDLE_FIRST_ALERT_MINUTES and not self.alerts_sent['first_alert']:
+                    if elapsed_minutes >= self.first_alert_minutes and not self.alerts_sent['first_alert']:
                         await self._handle_first_alert(remaining_minutes)
 
                     # 2. FINAL WARNING
-                    if elapsed_minutes >= Config.IDLE_FINAL_WARNING_MINUTES and not self.alerts_sent['final_warning']:
+                    if elapsed_minutes >= self.final_warning_minutes and not self.alerts_sent['final_warning']:
                         await self._handle_final_warning(remaining_minutes)
 
                     # 3. SHUTDOWN
@@ -228,7 +296,12 @@ class JobManager:
         # Add simpler cancel button
         keyboard = [[InlineKeyboardButton("❌", callback_data=f"cancel_{job.job_id}")]]
 
-        await self.app.bot.send_message(job.chat_id, content, parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id, reply_markup=InlineKeyboardMarkup(keyboard))
+        # Gradio/web jobs use message_id 0/None (no reply target). Skip reply_to then.
+        reply_to = job.message_id if isinstance(job.message_id, int) and job.message_id > 0 else None
+        if reply_to is not None:
+            await self.app.bot.send_message(job.chat_id, content, parse_mode=ParseMode.MARKDOWN, reply_to_message_id=reply_to, reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await self.app.bot.send_message(job.chat_id, content, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
         log("JOB", f"[{job.job_id}] Queued at #{queue_position}")
 
     def complete_job(self, job_id: str):
@@ -249,6 +322,12 @@ class JobManager:
         job = self.job_registry.get(job_id)
         if not job:
             return False, "Unknown"
+        # Do not claim to cancel currently-processing jobs (worker already owns them).
+        if self.currently_processing and self.currently_processing.job_id == job_id:
+            log("JOB", f"[{job.job_id}] Cancel denied (already processing)")
+            return False, job.original_filename
+        if job.status != "queued":
+            return False, job.original_filename
         job.status = "cancelled"
         log("JOB", f"[{job.job_id}] Cancelled")
         return True, job.original_filename
@@ -265,6 +344,7 @@ class JobManager:
 class FilesHandler:
     """Handles all incoming file attachments, including multi-part ZIP archives."""
     COMBINE_TIMEOUT_SECONDS = 30
+    MAX_MULTIPART_ARCHIVES = 20
 
     def __init__(self, job_manager: JobManager, upload_folder: str):
         self.job_manager = job_manager
@@ -272,6 +352,22 @@ class FilesHandler:
         self.multipart_archives = {}
         self.multipart_pattern = re.compile(r'(.+)\.(zip|z)\.(\d{2,3})$', re.IGNORECASE)
         print("✅ FilesHandler initialized with multi-part ZIP support.")
+
+    def cancel_all_multipart(self):
+        """Cancel pending multipart timers and delete part files (call on shutdown)."""
+        for base_name in list(self.multipart_archives.keys()):
+            data = self.multipart_archives.pop(base_name, None)
+            if not data:
+                continue
+            try:
+                timer = data.get('timer')
+                if timer:
+                    timer.cancel()
+                for chunk_path, _ in data.get('files', []):
+                    if os.path.exists(chunk_path):
+                        os.remove(chunk_path)
+            except Exception:
+                pass
 
     @staticmethod
     def is_image_file(filename: str) -> bool:
@@ -299,16 +395,24 @@ class FilesHandler:
                     os.remove(local_path)
                 return
 
-            job_message = message
-            if filename_override:
-                fake_attachment = type('obj', (object,), {'file_name': original_filename})
-                job_message = type('obj', (object,), {
-                    'message_id': message.message_id, 'chat_id': message.chat_id,
-                    'from_user': message.from_user, 'chat': message.chat,
-                    'effective_attachment': fake_attachment
-                })
-
-            job = Job.from_message(job_message, local_path, duration)
+            author = "Unknown"
+            try:
+                if getattr(message, "from_user", None):
+                    author = message.from_user.first_name or "Unknown"
+                elif getattr(getattr(message, "chat", None), "title", None):
+                    author = message.chat.title
+            except Exception:
+                pass
+            job = Job.from_parts(
+                message_id=getattr(message, "message_id", 0),
+                chat_id=getattr(message, "chat_id", 0),
+                filename=original_filename,
+                local_path=local_path,
+                author=author,
+                duration=duration,
+                job_type="transcript",
+                original_message=message,
+            )
             await self.job_manager.add_job(job)
 
         except Exception as e:
@@ -382,6 +486,11 @@ class FilesHandler:
             archive_data['timer'] = loop.call_later(self.COMBINE_TIMEOUT_SECONDS, lambda: asyncio.create_task(self._process_multipart_archive(base_name)))
             await message.reply_text(f"✅ Part {len(archive_data['files'])} for `{base_name}` received. Timer reset.", parse_mode=ParseMode.MARKDOWN)
         else:
+            if len(self.multipart_archives) >= self.MAX_MULTIPART_ARCHIVES:
+                if os.path.exists(local_path):
+                    os.remove(local_path)
+                await message.reply_text("❌ Too many pending archives. Wait for current ones to finish.", parse_mode=ParseMode.MARKDOWN)
+                return
             status_message = await message.reply_text(
                 f"ℹ️ Received the first part of archive `{base_name}`.\n"
                 f"Send the other parts. I will wait {self.COMBINE_TIMEOUT_SECONDS} seconds after the last file is received.",
@@ -437,12 +546,18 @@ class FilesHandler:
         queued_files_count = 0
         try:
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                file_list = [f for f in zip_ref.namelist() if not f.startswith(('__MACOSX', '.')) and not f.endswith('/')]
+                # Zip Slip hardening: validate members before extract
+                try:
+                    file_list = await asyncio.to_thread(validate_zip_members, zip_ref)
+                except ValueError as ve:
+                    await status_message.edit_text(f"❌ Rejected unsafe archive `{zip_name}`: `{ve}`", parse_mode=ParseMode.MARKDOWN)
+                    return
                 if not file_list:
                     await status_message.edit_text(f"⚠️ No valid files found inside `{zip_name}`.")
                     return
 
                 await status_message.edit_text(f"Found {len(file_list)} files in `{zip_name}`. Validating and queueing...", parse_mode=ParseMode.MARKDOWN)
+                os.makedirs(extract_dir, exist_ok=True)
                 await asyncio.to_thread(zip_ref.extractall, extract_dir)
 
             for root, _, files in os.walk(extract_dir):

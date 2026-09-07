@@ -11,16 +11,16 @@
 import asyncio
 import gc
 import os
-
 import sys
 import time
 import uuid
 
-
 from headlinebot import config
 from headlinebot.bot_classes import FilesHandler, IdleMonitor, Job, JobManager
 from headlinebot.config import Config
-from headlinebot.image_editor import edit_image
+
+# NOTE: edit_image (cv2/numpy/PIL) is lazy-imported inside _process_image_job
+# so CPU boot with requirements_cpu.txt does not require heavy deps at import.
 from headlinebot.model_manager import discover_models
 from headlinebot.utils import format_duration, get_runtime, log, retouch_transcript, set_model_chains, summarize_text
 
@@ -43,7 +43,6 @@ GRADIO_AVAILABLE = False
 gradio_handler = None
 model = None
 gemini_client = None
-genai = None # Loaded in background
 
 # --- Secrets & Config Alias ---
 TELEGRAM_BOT_TOKEN = config.TELEGRAM_BOT_TOKEN
@@ -74,7 +73,7 @@ IS_COLAB = False
 IS_KAGGLE = False
 
 try:
-    from kaggle_secrets import UserSecretsClient
+    from kaggle_secrets import UserSecretsClient  # noqa: F401  # availability probe
     IS_KAGGLE = True
     class KaggleRuntime:
         def unassign(self): print("🔌 Kaggle: no auto-shutdown (stop notebook manually)")
@@ -128,6 +127,32 @@ TRANSCRIPT_FOLDER = 'transcripts'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(TRANSCRIPT_FOLDER, exist_ok=True)
 
+
+def _janitor_uploads(max_age_hours: int = 24):
+    """Delete orphan uploads/extract dirs/.part files older than cap (best-effort)."""
+    try:
+        now = time.time()
+        for name in os.listdir(UPLOAD_FOLDER):
+            path = os.path.join(UPLOAD_FOLDER, name)
+            try:
+                age_h = (now - os.path.getmtime(path)) / 3600
+                if age_h < max_age_hours:
+                    continue
+                if os.path.isdir(path) and name.startswith("extract_"):
+                    import shutil
+                    shutil.rmtree(path, ignore_errors=True)
+                    log("INIT", f"Janitor removed old {name}")
+                elif os.path.isfile(path) and (name.endswith(".part") or ".zip." in name):
+                    os.remove(path)
+                    log("INIT", f"Janitor removed old {name}")
+            except Exception:
+                continue
+    except Exception as e:
+        log("ERROR", f"Janitor failed: {e}")
+
+
+_janitor_uploads()
+
 # ------------------------------------------------------------------------------
 # SECTION 3: AI AND HARDWARE INITIALIZATION
 # ------------------------------------------------------------------------------
@@ -140,9 +165,9 @@ device = "cuda" if MODE == 'WHISPER' else "cpu"
 model = None
 gemini_client = None
 models_ready_event = asyncio.Event()
-
-if MODE == 'GEMINI':
-    models_ready_event.set() # Gemini doesn't need "loading" wait here
+# NOTE: Do NOT pre-set event for GEMINI here. Worker must wait until
+# initialize_models_background() finishes gemini_client + discover_models(),
+# otherwise transcribe_with_gemini() returns error-string as transcript (C1).
 
 
 
@@ -174,18 +199,60 @@ async def perform_shutdown(reason: str):
     uptime_str = get_runtime()
     log("SHUTDOWN", f"Initiated. Reason: {reason}")
 
-    # 1. Notify admin
+    # 1. Notify admin (best-effort flush before teardown)
     try:
         if application:
             await send_telegram_notification(application, f"🔌 *Shutdown*\nReason: `{reason}`\nUptime: `{uptime_str}`")
             log("SHUTDOWN", "Notification sent")
+            await asyncio.sleep(1)
     except Exception as e:
         log("ERROR", f"Final notification failed: {e}")
 
-    # 2. Stop the Telegram polling loop (this unblocks run_polling)
+    # 1b. Stop background tasks
+    try:
+        if idle_monitor and idle_monitor._task:
+            idle_monitor.stop()
+    except Exception as e:
+        log("ERROR", f"Idle monitor stop failed: {e}")
+    try:
+        if files_handler is not None:
+            try:
+                files_handler.cancel_all_multipart()
+            except Exception:
+                pass
+    except Exception as e:
+        log("ERROR", f"Multipart cleanup failed: {e}")
+    try:
+        if gradio_handler is not None:
+            try:
+                from headlinebot.gradio_handler import shutdown_gradio
+                await shutdown_gradio()
+            except Exception:
+                pass
+    except Exception as e:
+        log("ERROR", f"Gradio shutdown failed: {e}")
+
+    # 2. Stop Telegram polling/updater in PTB order (Updater.stop -> stop -> shutdown).
+    # From callback context prefer stop_running() which still runs post_stop/shutdown.
     try:
         if application:
-            await application.stop()
+            try:
+                if application.updater:
+                    await application.updater.stop()
+            except Exception as e:
+                log("ERROR", f"Updater stop failed: {e}")
+            try:
+                application.stop_running()
+            except Exception:
+                pass
+            try:
+                await application.stop()
+            except Exception as e:
+                log("ERROR", f"Application stop failed: {e}")
+            try:
+                await application.shutdown()
+            except Exception as e:
+                log("ERROR", f"Application shutdown failed: {e}")
             log("SHUTDOWN", "Polling stopped")
     except Exception as e:
         log("ERROR", f"Failed to stop polling: {e}")
@@ -227,7 +294,8 @@ async def initialize_models_background():
                     log("INIT", "GPU detected by system but not accessible by Torch. Using CPU.")
 
                 try:
-                    import gradio_handler
+                    from headlinebot import gradio_handler as _gh
+                    gradio_handler = _gh
                     GRADIO_AVAILABLE = True
                 except ImportError:
                     pass
@@ -269,7 +337,8 @@ async def initialize_models_background():
                     if not torch.cuda.is_available():
                         device = "cpu"
                     try:
-                        import gradio_handler
+                        from headlinebot import gradio_handler as _gh2
+                        gradio_handler = _gh2
                         GRADIO_AVAILABLE = True
                     except ImportError:
                         pass
@@ -292,9 +361,9 @@ async def initialize_models_background():
                 compute_type = "int8"
 
             # Download model files via raw HTTP (bypass Xet which hangs on Colab)
-            # Hardcoded file list for CTranslate2 model (no HF API needed)
-            _files = ["config.json", "model.bin", "tokenizer.json", "vocabulary.txt"]
-            log("INIT", f"Downloading {len(_files)} files for {WHISPER_MODEL} via raw HTTP...")
+            # CTranslate2 manifest (validated): config.json, preprocessor_config.json,
+            # model.bin, tokenizer.json, vocabulary.* — probe existence per MODEL_SIZE.
+            _candidates = ["config.json", "preprocessor_config.json", "model.bin", "tokenizer.json", "vocabulary.txt", "vocabulary.json"]
             _repo = "Systran/faster-whisper-large-v2" if WHISPER_MODEL == "large-v2" else f"Systran/faster-whisper-{WHISPER_MODEL}"
             _local_dir = os.path.expanduser(f"~/.cache/whisper_models/{WHISPER_MODEL}")
             os.makedirs(_local_dir, exist_ok=True)
@@ -304,28 +373,73 @@ async def initialize_models_background():
             _headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
             start_ts = time.time()
 
+            # Probe which candidates exist (HEAD). Core files are required.
+            _files: list[str] = []
+            for _fname in sorted(_candidates):
+                _dest_probe = os.path.join(_local_dir, _fname)
+                if os.path.exists(_dest_probe) and os.path.getsize(_dest_probe) > 0:
+                    _files.append(_fname)
+                    continue
+                try:
+                    _head = await asyncio.to_thread(
+                        _req.head,
+                        f"https://huggingface.co/{_repo}/resolve/main/{_fname}",
+                        headers=_headers, timeout=10,
+                    )
+                    if _head.status_code == 200:
+                        _files.append(_fname)
+                    else:
+                        log("INIT", f"  Skip missing: {_fname} (HTTP {_head.status_code})")
+                except Exception as _e:
+                    # On probe failure, try download anyway for core files; skip optional vocab variants later on 404
+                    log("INIT", f"  Probe failed for {_fname}: {_e} — will try download")
+                    _files.append(_fname)
+            for _core in ("config.json", "model.bin", "tokenizer.json"):
+                if _core not in _files:
+                    raise RuntimeError(f"Required model file missing in repo {_repo}: {_core}")
+            log("INIT", f"Downloading {len(_files)} files for {WHISPER_MODEL} via raw HTTP...")
+
             _max_retries = 3
             for _fname in sorted(_files):
                 _dest = os.path.join(_local_dir, _fname)
-                if os.path.exists(_dest):
-                    continue
+                # Reuse only non-empty complete files (size verified below on download)
+                if os.path.exists(_dest) and os.path.getsize(_dest) > 0:
+                    # Optional vocab variants may be stale; core files keep cache
+                    if _fname.startswith("vocabulary"):
+                        pass
+                    else:
+                        continue
                 _url = f"https://huggingface.co/{_repo}/resolve/main/{_fname}"
                 _downloaded = False
+                _last_pct = -1
                 for _attempt in range(1, _max_retries + 1):
                     try:
                         log("INIT", f"  Downloading: {_fname}" + (f" (attempt {_attempt}/{_max_retries})" if _attempt > 1 else ""))
                         _resp = await asyncio.to_thread(_req.get, _url, headers=_headers, stream=True, timeout=(10, 300))
+                        if _resp.status_code == 404 and _fname.startswith("vocabulary"):
+                            log("INIT", f"  Skip optional missing: {_fname}")
+                            _downloaded = True
+                            break
                         _resp.raise_for_status()
                         _total = int(_resp.headers.get("content-length", 0))
                         _downloaded_bytes = 0
                         with open(_dest + ".part", "wb") as _f:
                             for _chunk in _resp.iter_content(chunk_size=8*1024*1024):
+                                if not _chunk:
+                                    continue
                                 _f.write(_chunk)
                                 _downloaded_bytes += len(_chunk)
                                 if _total:
                                     _pct = _downloaded_bytes * 100 // _total
-                                    if _pct % 20 == 0:
+                                    # Edge-triggered every 10% (not %20 spam)
+                                    if _pct // 10 != _last_pct // 10:
+                                        _last_pct = _pct
                                         log("INIT", f"    {_fname}: {_pct}%")
+                        # Size integrity check
+                        if _total and os.path.getsize(_dest + ".part") != _total:
+                            raise OSError(f"Size mismatch for {_fname}: got {os.path.getsize(_dest + '.part')} expected {_total}")
+                        if os.path.getsize(_dest + ".part") == 0:
+                            raise OSError(f"Empty download for {_fname}")
                         os.rename(_dest + ".part", _dest)
                         _size_mb = os.path.getsize(_dest) / (1024*1024)
                         log("INIT", f"  Done: {_fname} ({_size_mb:.0f}MB)")
@@ -336,7 +450,10 @@ async def initialize_models_background():
                         # Clean partial download
                         _part = _dest + ".part"
                         if os.path.exists(_part):
-                            os.remove(_part)
+                            try:
+                                os.remove(_part)
+                            except Exception:
+                                pass
                         if _attempt < _max_retries:
                             _delay = 2 ** _attempt
                             log("INIT", f"  Retrying in {_delay}s...")
@@ -345,7 +462,7 @@ async def initialize_models_background():
                     raise RuntimeError(f"Failed to download {_fname} after {_max_retries} attempts")
 
             elapsed = time.time() - start_ts
-            log("INIT", f"All {len(_files)} files downloaded in {elapsed:.0f}s")
+            log("INIT", f"All {len(_files)} files ready in {elapsed:.0f}s")
 
             model = await asyncio.to_thread(
                 WhisperModel,
@@ -372,9 +489,8 @@ async def initialize_models_background():
 
         models_ready_event.set()
 
-        # Start Gradio web interface if available now
-        if GRADIO_AVAILABLE:
-            application.create_task(initialize_gradio_background())
+        # NOTE: Gradio launch is owned by post_init() only (single site).
+        # Do NOT schedule initialize_gradio_background() here (was double launch).
 
         # Update startup message
         await update_startup_message()
@@ -450,10 +566,12 @@ async def update_startup_message(gradio_url: str = None):
     ai_status = "✅ Kitchen Open" if models_ready_event.is_set() else "⏳ Preparing..."
     hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
 
-    # If gradio_url is not passed, try to fetch it if it exists
-    if not gradio_url and GRADIO_AVAILABLE and gradio_handler.gradio_app:
-        if hasattr(gradio_handler.gradio_app, 'share_url'):
-            gradio_url = gradio_handler.gradio_app.share_url
+    # If gradio_url is not passed, try to fetch it via helper (no private access)
+    if not gradio_url and GRADIO_AVAILABLE and gradio_handler is not None:
+        try:
+            gradio_url = gradio_handler.get_share_url()
+        except Exception:
+            gradio_url = None
 
     gradio_text = f"🌐 *Web UI:* {gradio_url}\n" if gradio_url else ""
 
@@ -535,9 +653,18 @@ async def _process_image_job(job: Job, _start_time: float):
     output_filename = f"edited_{base_name}{ext}"
     output_path = os.path.join(IMAGE_OUTPUT_FOLDER, f"{uuid.uuid4().hex}_{output_filename}")
 
-    # Process
+    # Process (lazy import keeps CPU boot light)
     ENABLE_GEMINI = os.getenv('ENABLE_GEMINI_FEATURES', 'false').lower() == 'true'
     if gemini_client and ENABLE_GEMINI:
+        try:
+            from headlinebot.image_editor import edit_image
+        except ImportError as e:
+            log("ERROR", f"[{job.job_id}] Image deps missing: {e}")
+            with open(job.local_filepath, 'rb') as img_file:
+                await job._original_message.reply_photo(photo=img_file, caption="⚠️ Image deps missing. Original sent.")
+            if os.path.exists(output_path):
+                os.remove(output_path)
+            return
         result = await edit_image(job.local_filepath, output_path, gemini_client)
         if result["status"] == "success":
             params = result["params"]
@@ -568,12 +695,20 @@ async def _process_transcript_job(job: Job, start_time: float):
     # 1. Transcribe
     if MODE == 'GEMINI':
         from headlinebot.utils import transcribe_with_gemini
+        if gemini_client is None:
+            raise RuntimeError("Gemini client not initialized (missing GEMINI_API_KEY or discovery failed)")
         transcript_text, detected_language = await transcribe_with_gemini(job.local_filepath, gemini_client)
     else:
+        if model is None:
+            raise RuntimeError("Whisper model not loaded yet")
         transcript_text, detected_language = await asyncio.to_thread(run_transcription_process, job)
 
     if job.status == 'cancelled':
         raise asyncio.CancelledError("Job cancelled during transcription.")
+
+    # Never persist error-strings as transcripts (C1). Fail job instead.
+    if not transcript_text or transcript_text.lstrip().startswith("Error"):
+        raise RuntimeError(f"Transcription failed: {transcript_text[:200]}")
 
     base_name = os.path.splitext(job.original_filename)[0]
     safe_name = secure_filename(base_name)[:50]
@@ -586,7 +721,8 @@ async def _process_transcript_job(job: Job, start_time: float):
     processing_duration_str = format_duration(time.time() - start_time)
     log("JOB", f"[{job.job_id}] Transcription done in {processing_duration_str}")
 
-    result_text = (f"✅ *Done!* `{job.original_filename}`\n"
+    from headlinebot.utils import escape_md_v1 as _esc
+    result_text = (f"✅ *Done!* `{_esc(job.original_filename)}`\n"
                    f"⏱️ {duration_str} audio → {processing_duration_str} process\n"
                    f"🌐 Lang: {detected_language.upper()}\n"
                    f"🤖 Generating AI Summary...")
@@ -630,7 +766,8 @@ async def _process_transcript_job(job: Job, start_time: float):
         for r in results:
             if isinstance(r, Exception):
                 log("ERROR", f"AI task failed: {r}")
-                await application.bot.send_message(job.chat_id, f"⚠️ AI Failed: {r}", reply_to_message_id=job.message_id)
+                safe_r = _esc(str(r), limit=200)
+                await application.bot.send_message(job.chat_id, f"⚠️ AI Failed: {safe_r}", reply_to_message_id=job.message_id)
 
 
 async def queue_processor():
@@ -642,11 +779,17 @@ async def queue_processor():
     while not SHUTDOWN_IN_PROGRESS:
         # Heartbeat every 60s — keeps Kaggle alive (prevents idle kill)
         if time.time() - last_heartbeat >= 60:
-            elapsed = get_runtime()
+            uptime = get_runtime()
             qsize = job_manager.job_queue.qsize()
             processing = job_manager.currently_processing
             status = f"processing {processing.original_filename}" if processing else "idle"
-            log("HEARTBEAT", f"Queue={qsize} | Status={status}")
+            try:
+                import shutil
+                free_mb = shutil.disk_usage(UPLOAD_FOLDER).free // (1024 * 1024)
+                disk = f" | DiskFree={free_mb}MB"
+            except Exception:
+                disk = ""
+            log("HEARTBEAT", f"Uptime={uptime} | Queue={qsize} | Status={status}{disk}")
             last_heartbeat = time.time()
 
         try:
@@ -676,7 +819,10 @@ async def queue_processor():
             job.status = "failed"
             log("ERROR", f"[{job.job_id}] {e}")
             try:
-                await application.bot.send_message(job.chat_id, f"❌ *Failed:* `{job.original_filename}`\n`{e}`", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
+                from headlinebot.utils import escape_md_v1
+                safe_name = escape_md_v1(job.original_filename)
+                safe_err = escape_md_v1(str(e), limit=200)
+                await application.bot.send_message(job.chat_id, f"❌ *Failed:* `{safe_name}`\n`{safe_err}`", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
             except Exception:
                 log("ERROR", f"[{job.job_id}] Failed to send error notification")
         finally:
@@ -686,9 +832,7 @@ async def queue_processor():
                 except Exception:
                     pass
 
-            if 'transcript_text' in locals():
-                del transcript_text  # noqa: F821
-                gc.collect()
+            gc.collect()
 
             job_manager.job_queue.task_done()
             job_manager.complete_job(job.job_id)
@@ -748,7 +892,17 @@ async def extend_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = query.data
+    data = query.data or ""
+
+    # Authz: CallbackQueryHandler takes no filters — enforce allowlist manually.
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    if chat_id != TELEGRAM_CHAT_ID:
+        try:
+            await query.answer("Denied.", show_alert=True)
+        except Exception:
+            pass
+        log("ERROR", f"Denied callback {data!r} from chat {chat_id} user {query.from_user.id if query.from_user else '?'}")
+        return
 
     if data == "refresh_status":
         text, reply_markup = await get_status_text_and_keyboard()
@@ -757,8 +911,24 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except telegram.error.BadRequest:
             pass
     elif data == "shutdown_bot":
+        user = query.from_user.first_name if query.from_user else "?"
+        uid = query.from_user.id if query.from_user else "?"
+        log("SHUTDOWN", f"Shutdown requested by {user} (id={uid}) — asking confirm")
+        confirm_kb = [
+            [InlineKeyboardButton("✅ Yes, shut down", callback_data="confirm_shutdown")],
+            [InlineKeyboardButton("« Cancel", callback_data="refresh_status")],
+        ]
+        await query.edit_message_text(
+            "🔴 *Shut down bot?* Confirm below.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(confirm_kb),
+        )
+    elif data == "confirm_shutdown":
+        user = query.from_user.first_name if query.from_user else "?"
+        uid = query.from_user.id if query.from_user else "?"
+        log("SHUTDOWN", f"Shutdown confirmed by {user} (id={uid})")
         await query.edit_message_text("🔴 *MANUAL SHUTDOWN INITIATED...*", parse_mode=ParseMode.MARKDOWN)
-        await perform_shutdown(f"Manual Shutdown by {query.from_user.first_name}")
+        await perform_shutdown(f"Manual Shutdown by {user} (id={uid})")
     elif data == "view_cancel_jobs":
         queued_jobs = job_manager.get_queued_jobs()
         if not queued_jobs:
@@ -770,7 +940,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("cancel_"):
         job_id = data.split("_")[1]
         cancelled, job_name = await job_manager.cancel_job(job_id)
-        msg = f"✅ Job `{job_name}` was cancelled." if cancelled else "❌ Could not cancel job."
+        try:
+            from telegram.helpers import escape_markdown
+            safe_name = escape_markdown(str(job_name), version=1)
+        except Exception:
+            safe_name = str(job_name).replace("`", "'")[:80]
+        if cancelled:
+            msg = f"✅ Job `{safe_name}` was cancelled."
+        else:
+            msg = "❌ Could not cancel job (already processing or unknown)."
         await query.edit_message_text(msg, reply_markup=None, parse_mode=ParseMode.MARKDOWN)
     elif data == "extend_idle":
         # Rate limit check (5 minutes = 300 seconds)
@@ -819,17 +997,14 @@ async def main():
             application.create_task(initialize_gradio_background())
 
         if ENABLE_IDLE_MONITOR:
-            # CPU/Gemini Mode: Multiply by 5 as requested
+            # CPU/Gemini Mode: 5x longer timeouts (effective, via IdleMonitor).
             if MODE == 'GEMINI':
-                global IDLE_FIRST_ALERT_MINUTES, IDLE_FINAL_WARNING_MINUTES, IDLE_SHUTDOWN_MINUTES
-                IDLE_FIRST_ALERT_MINUTES *= 5
-                IDLE_FINAL_WARNING_MINUTES *= 5
-                IDLE_SHUTDOWN_MINUTES *= 5
-                # Note: We must also update Config directly if other components use it,
-                # but since we have aliases, we should update both or just aliases.
-                # However, IdleMonitor was already initialized with Config values.
-                # Let's check how IdleMonitor is initialized.
-                log("INIT", f"CPU Mode: Idle timers set to {IDLE_FIRST_ALERT_MINUTES}/{IDLE_FINAL_WARNING_MINUTES}/{IDLE_SHUTDOWN_MINUTES}m")
+                idle_monitor.set_effective_timeouts(
+                    IDLE_FIRST_ALERT_MINUTES * 5,
+                    IDLE_FINAL_WARNING_MINUTES * 5,
+                    IDLE_SHUTDOWN_MINUTES * 5,
+                )
+                log("INIT", f"CPU Mode: Idle timers set to {IDLE_FIRST_ALERT_MINUTES * 5}/{IDLE_FINAL_WARNING_MINUTES * 5}/{IDLE_SHUTDOWN_MINUTES * 5}m")
             idle_monitor.start()
 
         # Send startup notification in background (non-blocking)
@@ -873,15 +1048,45 @@ async def main():
     application.add_handler(MessageHandler(filters.ATTACHMENT & chat_filter, files_handler.handle_files))
 
 
-    # Error Handler with retry tracking
-    _transient_error_counts = {}  # Track consecutive transient errors
+    # Error Handler with timestamped transient tracking (no shutdown on single update)
+    _transient_error_counts: dict[str, tuple[int, float]] = {}  # name -> (count, window_start)
     MAX_TRANSIENT_RETRIES = 2
+    TRANSIENT_WINDOW_SECONDS = 300
 
     async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
         error = context.error
         error_name = type(error).__name__
         print(f"❌ Exception while handling an update: {error_name}: {error}")
+
+        # Fatal auth state: bot blocked/kicked/deactivated. Do not retry as transient.
+        if error_name == "Forbidden":
+            print("🔴 [ERROR_HANDLER] Forbidden (bot blocked or lacks rights). Notifying admin, no shutdown.")
+            try:
+                if update and isinstance(update, Update) and update.effective_message:
+                    await update.effective_message.reply_text(
+                        "❌ Bot lacks rights for this action (Forbidden). Check group perms.",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+            except Exception:
+                pass
+            return
+
+        # Flood control: honor Telegram retry_after instead of immediate retry.
+        if error_name == "RetryAfter":
+            delay = 30
+            try:
+                ra = getattr(error, "retry_after", 30)
+                delay = int(ra.total_seconds()) if hasattr(ra, "total_seconds") else int(ra)
+            except Exception:
+                delay = 30
+            delay = max(1, min(delay + 1, 300))
+            print(f"⚠️ [ERROR_HANDLER] RetryAfter — backing off {delay}s")
+            try:
+                await asyncio.sleep(delay)
+            except asyncio.CancelledError:
+                pass
+            return
 
         # List of transient network/connection errors that should NOT trigger shutdown
         transient_errors = (
@@ -891,39 +1096,43 @@ async def main():
             'LocalProtocolError', 'UnsupportedProtocol', 'DecodingError',
             # SSL errors
             'SSLError', 'SSLCertVerificationError',
-            # Telegram-bot errors
-            'TimeoutException', 'NetworkError', 'TimedOut', 'RetryAfter', 'Forbidden',
+            # Telegram-bot errors (Forbidden/RetryAfter handled above)
+            'TimeoutException', 'NetworkError', 'TimedOut',
             # General connection
             'ConnectionError', 'ConnectionResetError', 'ConnectionRefusedError', 'BrokenPipeError',
             'OSError', 'IOError', 'socket.error', 'socket.timeout'
         )
 
         if error_name in transient_errors:
-            # Track retry count
-            _transient_error_counts[error_name] = _transient_error_counts.get(error_name, 0) + 1
-            count = _transient_error_counts[error_name]
+            now = time.time()
+            count, window_start = _transient_error_counts.get(error_name, (0, now))
+            if now - window_start > TRANSIENT_WINDOW_SECONDS:
+                count, window_start = 0, now
+            count += 1
+            _transient_error_counts[error_name] = (count, window_start)
 
             if count <= MAX_TRANSIENT_RETRIES:
                 print(f"⚠️ [ERROR_HANDLER] Transient error {error_name} ({count}/{MAX_TRANSIENT_RETRIES}) - will retry")
                 return  # Don't shutdown, let telegram-bot retry
             else:
                 print(f"🔴 [ERROR_HANDLER] Transient error {error_name} exceeded {MAX_TRANSIENT_RETRIES} retries - network may be unstable")
-                _transient_error_counts[error_name] = 0  # Reset counter
+                _transient_error_counts[error_name] = (0, now)  # Reset counter
                 return  # Still don't shutdown, but log critical warning
 
-        # Reset counters on non-transient error
+        # Reset transient window on non-transient error (do not shutdown on single update)
         _transient_error_counts.clear()
 
-        # Notify user if possible (wrapped in try-except)
+        # Notify user if possible (redacted, truncated, no paths)
         try:
             if update and isinstance(update, Update) and update.effective_message:
-                text = f"❌ *An error occurred:* `{error}`"
+                safe_err = str(error)[:200].replace("`", "'")
+                text = f"❌ *An error occurred:* `{safe_err}`"
                 await update.effective_message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
         except Exception as notify_err:
             print(f"⚠️ [ERROR_HANDLER] Could not send error notification: {notify_err}")
 
-        # Trigger safe shutdown only for critical errors
-        await perform_shutdown(f"Application Error: {error}")
+        # NOTE: No perform_shutdown() here. Per-update errors must not kill the bot.
+        # Shutdown is reserved for init failures (see initialize_models_background).
 
     application.add_error_handler(global_error_handler)
 

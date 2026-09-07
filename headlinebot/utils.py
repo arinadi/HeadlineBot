@@ -34,10 +34,23 @@ def log(category: str, message: str):
     Print log with format: [HH:MM:SS] [+Runtime] [CATEGORY] message
 
     Categories: INIT, JOB, IDLE, WORKER, GEMINI, WHISPER, FILE, GRADIO, ERROR
+    Filter via LOG_LEVEL env: DEBUG (all) vs INFO (skip DEBUG/HEARTBEAT details).
     """
+    level = os.getenv("LOG_LEVEL", "INFO").upper()
+    if level != "DEBUG" and category in ("DEBUG",):
+        return
     timestamp = time.strftime("%H:%M:%S")
     runtime = get_runtime()
     print(f"[{timestamp}] [+{runtime}] [{category}] {message}")
+
+
+def escape_md_v1(text: str, limit: int = 80) -> str:
+    """Escape classic Markdown special chars in user-controlled text."""
+    try:
+        from telegram.helpers import escape_markdown
+        return escape_markdown(str(text)[:limit], version=1)
+    except Exception:
+        return str(text)[:limit].replace("`", "'").replace("*", "").replace("_", "").replace("[", "(").replace("]", ")")
 
 # --- AI & Formatting Utilities ---
 
@@ -223,10 +236,12 @@ def format_transcription_native(segments: list) -> str:
 async def transcribe_with_gemini(local_filepath: str, gemini_client) -> tuple[str, str]:
     """Transcribes audio using Gemini API (File API).
     Uses model chain: primary (flash) → fallbacks.
+    Remote file is deleted in finally (privacy/quota).
     """
     if not gemini_client:
         return "Error: Gemini client not initialized.", "N/A"
 
+    audio_file = None
     try:
         log("GEMINI", f"Uploading {os.path.basename(local_filepath)}...")
         # 1. Upload (max 60s)
@@ -278,3 +293,10 @@ async def transcribe_with_gemini(local_filepath: str, gemini_client) -> tuple[st
     except Exception as e:
         log("ERROR", f"Gemini transcription failed: {e}")
         return f"Error transcribing with Gemini: {e}", "N/A"
+    finally:
+        if audio_file is not None:
+            try:
+                await asyncio.to_thread(gemini_client.files.delete, name=audio_file.name)
+                log("GEMINI", f"Remote file deleted: {audio_file.name}")
+            except Exception as e:
+                log("ERROR", f"Gemini remote delete failed: {e}")

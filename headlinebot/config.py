@@ -15,16 +15,19 @@ if TELEGRAM_CHAT_ID:
     TELEGRAM_CHAT_ID = int(TELEGRAM_CHAT_ID)
 
 # --- Bot Configuration ---
+# Groups: WHISPER_* GPU-only, VAD_* advanced, GEMINI/* cloud, IDLE_* credits.
 class Config:
-    # --- Whisper Core Settings ---
+    # --- Whisper Core Settings (GPU/WHISPER mode only) ---
     # Model size: tiny, base, small, medium, large-v2, large-v3. Larger = slower but more accurate.
     WHISPER_MODEL = os.getenv('MODEL_SIZE', 'large-v2')
 
-    # Precision (compute_type): 'auto' (default), 'float16', 'int8_float16', 'int8'.
+    # Precision (compute_type): 'auto' (default), 'float16', 'int8_float16', 'int8', 'float32'.
     # 'auto' selects float16 for CUDA and int8 for CPU.
-    WHISPER_PRECISION = os.getenv('USE_FP16', 'auto')
+    # Preferred: WHISPER_PRECISION; deprecated alias USE_FP16 still honored.
+    WHISPER_PRECISION = os.getenv('WHISPER_PRECISION', os.getenv('USE_FP16', 'auto'))
 
-    # Beam Size: Number of paths to search. Higher (5-10) = better accuracy, slower speed.
+    # Beam Size: Number of paths to search. 5 is a good speed/accuracy balance;
+    # 10 is slower with marginal gain on clean audio (UNVERIFIED on T4, keep 10 default for now).
     WHISPER_BEAM_SIZE = int(os.getenv('BEAM_SIZE', 10))
 
     # --- Whisper Advanced decoding ---
@@ -41,7 +44,7 @@ class Config:
     # No Repeat N-Gram: Prevent repeating sequences of N words.
     WHISPER_NO_REPEAT_NGRAM_SIZE = int(os.getenv('NO_REPEAT_NGRAM_SIZE', 3))
 
-    # --- VAD (Voice Activity Detection) ---
+    # --- VAD (Voice Activity Detection, advanced; only used when VAD_FILTER=true) ---
     # Filter: Enable/Disable VAD to remove silence/hallucinations.
     VAD_FILTER = os.getenv('VAD_FILTER', 'False').lower() == 'true'
 
@@ -74,7 +77,7 @@ class Config:
     # Shutdown: Minutes of idleness before killing runtime.
     IDLE_SHUTDOWN_MINUTES = int(os.getenv('IDLE_SHUTDOWN_MINUTES', 10))
 
-    # --- Gemini Features (temporarily disabled) ---
+    # --- Gemini Features (default off for cost control; summary/retouch/photo disabled when false) ---
     ENABLE_GEMINI_FEATURES = os.getenv('ENABLE_GEMINI_FEATURES', 'false').lower() == 'true'
 
     # --- Image Editing Settings ---

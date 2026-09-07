@@ -187,6 +187,42 @@ for line in proc.stdout:
 
 **Selesai.** Buka Telegram, kirim file, dan saksikan.
 
+### Opsi C: colab CLI (tanpa browser)
+
+Web dan CLI punya **lifecycle berbeda**:
+- **Web** (notebook): VM kosong → `runner.py` clone/update repo, secrets dari Colab Secrets.
+- **CLI**: kode sudah ada di VM (upload tarball, in-place, tanpa git) → secrets dari file `.env` lokal.
+
+> ⚠️ `google.colab userdata.get()` **tidak berfungsi** dalam sesi CLI
+> (TimeoutException). Karena itu alur CLI memakai `.env`, bukan Colab Secrets.
+
+**1. Install & auth (sekali saja)**
+
+```bash
+pip install google-colab-cli
+pip install 'jupyter-kernel-client==0.15.0'  # 1.x merusak colab exec
+colab sessions  # memicu OAuth via browser, sekali saja
+```
+
+**2. Siapkan `.env`** (tidak pernah di-commit — sudah gitignored)
+
+```bash
+cp .env.example .env
+# isi 4 variable: INFISICAL_CLIENT_ID, INFISICAL_CLIENT_SECRET,
+# INFISICAL_PROJECT_ID, INFISICAL_ENV
+```
+
+**3. Jalankan**
+
+```bash
+./colab/colab-run.sh up --gpu T4   # CPU default; T4 untuk Whisper GPU
+./colab/colab-run.sh logs          # ekor bot.log
+./colab/colab-run.sh stop          # bebaskan VM
+```
+
+`bootstrap.py` di VM: ekstrak tarball → muat `.env` → tarik secrets asli
+dari Infisical (`platform="local"`) → install deps → jalankan bot detached.
+
 ---
 
 ## 🧠 Apa yang Bisa HeadlineBot?
@@ -267,7 +303,8 @@ HeadlineBot/
 │   └── utils.py           # Summarization, retouch, formatting, platform detection
 ├── main.py                # Core bot — handlers, queue, worker
 ├── start.py               # GPU/CPU detection, launcher
-├── runner.py              # Colab/Kaggle entry point (branch-aware: prod/beta)
+├── runner.py              # Entry point (web: clone/update; CLI: in-place)
+├── colab/                 # colab-CLI support: colab-run.sh + bootstrap.py
 ├── requirements.txt       # Dependencies (GPU + CPU)
 └── requirements_cpu.txt   # CPU-only dependencies
 ```

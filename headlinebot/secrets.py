@@ -9,6 +9,10 @@ User stores 4 secrets in Kaggle/Colab:
   - INFISICAL_CLIENT_SECRET
   - INFISICAL_PROJECT_ID
   - INFISICAL_ENV (default: "dev")
+
+CLI note: platform-native stores are unavailable in colab-CLI sessions
+(userdata.get() raises TimeoutException there), so every platform path
+falls back to os.environ — which the CLI runner fills from a local .env.
 """
 
 import os
@@ -17,36 +21,47 @@ from headlinebot.utils import detect_platform
 
 INFISICAL_API = "https://app.infisical.com/api/v1"
 def get_infisical_credentials(platform=None):
-    """Retrieve Infisical credentials from platform-native secret stores."""
+    """Retrieve Infisical credentials from platform-native secret stores.
+
+    Every platform path falls back to os.environ on ANY failure: in
+    colab-CLI sessions userdata.get()/kaggle secrets are unreachable
+    (TimeoutException), and the CLI runner provides the 4 INFISICAL_*
+    values via environment instead. Web behavior is unchanged.
+    """
     if platform is None:
         platform = detect_platform()
 
     if platform == "kaggle":
-        from kaggle_secrets import UserSecretsClient
-        client = UserSecretsClient()
-        return (
-            client.get_secret("INFISICAL_CLIENT_ID"),
-            client.get_secret("INFISICAL_CLIENT_SECRET"),
-            client.get_secret("INFISICAL_PROJECT_ID"),
-            client.get_secret("INFISICAL_ENV") or "dev",
-        )
+        try:
+            from kaggle_secrets import UserSecretsClient
+            client = UserSecretsClient()
+            return (
+                client.get_secret("INFISICAL_CLIENT_ID"),
+                client.get_secret("INFISICAL_CLIENT_SECRET"),
+                client.get_secret("INFISICAL_PROJECT_ID"),
+                client.get_secret("INFISICAL_ENV") or "dev",
+            )
+        except Exception:
+            pass
 
     elif platform == "colab":
-        from google.colab import userdata
-        return (
-            userdata.get("INFISICAL_CLIENT_ID"),
-            userdata.get("INFISICAL_CLIENT_SECRET"),
-            userdata.get("INFISICAL_PROJECT_ID"),
-            userdata.get("INFISICAL_ENV") or "dev",
-        )
+        try:
+            from google.colab import userdata
+            return (
+                userdata.get("INFISICAL_CLIENT_ID"),
+                userdata.get("INFISICAL_CLIENT_SECRET"),
+                userdata.get("INFISICAL_PROJECT_ID"),
+                userdata.get("INFISICAL_ENV") or "dev",
+            )
+        except Exception:
+            pass
 
-    else:
-        return (
-            os.environ.get("INFISICAL_CLIENT_ID"),
-            os.environ.get("INFISICAL_CLIENT_SECRET"),
-            os.environ.get("INFISICAL_PROJECT_ID"),
-            os.environ.get("INFISICAL_ENV", "dev"),
-        )
+    return (
+        os.environ.get("INFISICAL_CLIENT_ID"),
+        os.environ.get("INFISICAL_CLIENT_SECRET"),
+        os.environ.get("INFISICAL_PROJECT_ID"),
+        os.environ.get("INFISICAL_ENV", "dev"),
+    )
 
 
 def _login(client_id, client_secret):

@@ -54,6 +54,16 @@ def run_command_streaming(cmd):
     return process.returncode
 
 
+def is_repo_checkout():
+    """True when cwd already IS the repo (CLI lifecycle: code uploaded,
+    no setup needed). Otherwise the web lifecycle applies (clone/update)."""
+    return (
+        os.path.isfile("start.py")
+        and os.path.isfile("main.py")
+        and os.path.isfile(os.path.join("headlinebot", "__init__.py"))
+    )
+
+
 def resolve_version():
     """Resolve HEADLINEBOT_VERSION env var to branch name."""
     version = os.environ.get("HEADLINEBOT_VERSION", DEFAULT_VERSION).lower().strip()
@@ -159,8 +169,12 @@ def main():
     if not verify_secrets(platform):
         sys.exit(1)
 
-    # 3. Clone or Update Repository (branch-aware)
-    if os.path.exists(".git"):
+    # 3. Code lifecycle:
+    #    - IN-PLACE (colab-CLI): cwd already is the repo (uploaded), run here.
+    #    - SETUP (web notebook): empty VM, clone or update the repo first.
+    if is_repo_checkout():
+        print("🔄 Lifecycle: IN-PLACE (repo already here, skipping git)...", flush=True)
+    elif os.path.exists(".git"):
         print(f"⏳ Updating current directory (branch: {branch})...", flush=True)
         run_command(f"git fetch --depth 1 origin {branch}")
         run_command(f"git reset --hard origin/{branch}")

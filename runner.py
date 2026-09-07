@@ -6,7 +6,12 @@ import urllib.request
 
 
 def detect_platform():
-    """Detect runtime: Kaggle, Colab, or Local."""
+    """Detect runtime: Kaggle, Colab, or Local.
+
+    NOTE: Intentional duplicate of headlinebot.utils.detect_platform.
+    runner.py must work before the repo is cloned (headlinebot/ may not exist),
+    so it cannot import from headlinebot here. Keep logic in sync.
+    """
     try:
         from kaggle_secrets import UserSecretsClient  # noqa: F401
         return "kaggle"
@@ -34,9 +39,27 @@ VERSION_BRANCH_MAP = {
 }
 DEFAULT_VERSION = "prod"
 
-def run_command(cmd):
-    print(f"Executing: {cmd}", flush=True)
+def redact(cmd: str) -> str:
+    """Redact embedded tokens from log lines (https://user:token@host)."""
+    import re
+    return re.sub(r"https://[^@\s]+@", "https://***@", cmd)
+
+
+def run_command(cmd, *, _sensitive: bool = False):
+    """Run shell command via os.system. Logs redacted command. Prefer run_list()."""
+    print(f"Executing: {redact(cmd) if _sensitive else cmd}", flush=True)
     return os.system(cmd)
+
+
+def run_list(args: list, *, sensitive: bool = False, env: dict | None = None):
+    """Run argv list without shell (no ps token leak). Logs redacted argv."""
+    shown = " ".join(redact(a) if sensitive else a for a in args)
+    print(f"Executing: {shown}", flush=True)
+    import subprocess as _sp
+    merged = dict(os.environ)
+    if env:
+        merged.update(env)
+    return _sp.call(args, env=merged)
 
 def run_command_streaming(cmd):
     """Run command with real-time streaming output (important for Kaggle)."""
@@ -106,6 +129,7 @@ def download_repo_fallback(branch):
     """Download repo as ZIP when git is unavailable (fallback for Kaggle)."""
     import io
     import zipfile
+    from pathlib import PurePosixPath
 
     zip_url = f"https://github.com/arinadi/HeadlineBot/archive/refs/heads/{branch}.zip"
     print(f"📥 Downloading repo ({branch} branch) from {zip_url}...", flush=True)
@@ -115,6 +139,11 @@ def download_repo_fallback(branch):
             zip_data = resp.read()
 
         with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+            # Validate members before extract (Zip Slip hardening, trusted origin but still)
+            for info in zf.infolist():
+                p = PurePosixPath(info.filename)
+                if p.is_absolute() or ".." in p.parts:
+                    raise ValueError(f"Unsafe path in repo ZIP: {info.filename!r}")
             zf.extractall(".")
 
         # Rename extracted folder (GitHub zip extracts to RepoName-branch)
@@ -172,31 +201,57 @@ def main():
     # 3. Code lifecycle:
     #    - IN-PLACE (colab-CLI): cwd already is the repo (uploaded), run here.
     #    - SETUP (web notebook): empty VM, clone or update the repo first.
+    # NOTE: IN-PLACE intentionally skips git, so --version switch is ignored there.
+    # Log current sha when available to make mismatch visible.
     if is_repo_checkout():
         print("🔄 Lifecycle: IN-PLACE (repo already here, skipping git)...", flush=True)
+        try:
+            _sha = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                capture_output=True, text=True, timeout=10,
+            ).stdout.strip()
+            if _sha:
+                print(f"   Local HEAD: {_sha} (requested version: {version}/{branch})", flush=True)
+        except Exception:
+            print(f"   Requested version: {version}/{branch} (no git sha available)", flush=True)
     elif os.path.exists(".git"):
         print(f"⏳ Updating current directory (branch: {branch})...", flush=True)
-        run_command(f"git fetch --depth 1 origin {branch}")
-        run_command(f"git reset --hard origin/{branch}")
+        run_list(["git", "fetch", "--depth", "1", "origin", branch])
+        run_list(["git", "reset", "--hard", f"origin/{branch}"])
     elif os.path.exists(REPO_NAME):
         print(f"⏳ Entering and updating {REPO_NAME} (branch: {branch})...", flush=True)
         os.chdir(REPO_NAME)
-        run_command(f"git fetch --depth 1 origin {branch}")
-        run_command(f"git reset --hard origin/{branch}")
+        run_list(["git", "fetch", "--depth", "1", "origin", branch])
+        run_list(["git", "reset", "--hard", f"origin/{branch}"])
     else:
         print(f"⏳ Cloning {REPO_NAME} (branch: {branch})...", flush=True)
         token = os.environ.get('GITHUB_TOKEN')
-        clone_url = REPO_URL
-        if token and "github.com" in clone_url:
-            clone_url = clone_url.replace("https://", f"https://{token}@")
+        # Never embed token in URL (ps/logs/.git/config leak). Use transient header.
+        git_env = None
+        if token:
+            import base64
+            cred = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+            header = f"Authorization: Basic {cred}"
+            git_env = {
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "http.extraHeader",
+                "GIT_CONFIG_VALUE_0": header,
+            }
 
-        rc = run_command(f"git clone --depth 1 --branch {branch} {clone_url}")
+        rc = run_list(["git", "clone", "--depth", "1", "--branch", branch, REPO_URL, REPO_NAME],
+                      sensitive=bool(token), env=git_env)
         if rc != 0:
             print("⚠️ Git clone failed. Trying direct download...", flush=True)
             if not download_repo_fallback(branch):
                 sys.exit("❌ Failed to obtain repository")
         else:
             os.chdir(REPO_NAME)
+            # Defense-in-depth: ensure stored origin has no credentials.
+            try:
+                subprocess.run(["git", "remote", "set-url", "origin", REPO_URL],
+                               capture_output=True, timeout=10)
+            except Exception:
+                pass
 
     print(f"✅ Code ready ({int(time.time()) - int(os.environ['INIT_START'])}s) [{version}]", flush=True)
 

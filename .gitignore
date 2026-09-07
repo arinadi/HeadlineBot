@@ -1,2 +1,11 @@
-__pycache__
+__pycache__/
 .env
+.ruff_cache/
+.vscode/
+uploads/
+transcripts/
+edited_images/
+hb-run/
+*.log
+colab/hb.tar.gz
+colab/bootstrap.conf

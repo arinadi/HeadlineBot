@@ -22,8 +22,16 @@ HeadlineBot is a Telegram bot designed for **Google Colab**, **Kaggle**, and loc
 | **`config.py`** | **Configuration**. Manages Secrets and Settings. |
 | **`utils.py`** | **Utilities**. Gemini Transcription & Summarization logic. |
 | **`image_editor.py`** | **Image Processing**. Gemma 4 color correction with OpenCV pipeline. |
-| **`bot_classes.py`**| **Data Structures**. `JobManager`, `FilesHandler` (with duration enforcement). |
-| **`setup_uv.sh`** | **Installation**. Smart multi-requirements installer using `uv`. |
+| **`bot_classes.py`**| **Data Structures**. `Job`, `JobManager`, `IdleMonitor`, `FilesHandler` (ZIP/multipart validated). |
+| **`model_manager.py`** | **Models**. Discovery + retry chain (`discover_models`, `try_model_chain`). |
+| **`secrets.py`** | **Secrets**. Infisical loader (cached, source-logged). |
+| **`presets.json`** | **Photo presets**. Moved to `headlinebot/presets.json` (root copy kept as fallback). |
+
+## Critical Workflows
+
+### 1. Startup & Initialization
+-   **`start.py`**: Checks `nvidia-smi` (driver/GPU presence) -> Sets mode -> Runs `main.py`. `main.py` re-checks `torch.cuda.is_available()`; WHISPER on CPU is slow — prefer GEMINI if no torch CUDA.
+-   **`main.post_init`**: Sets effective idle timeouts via `IdleMonitor.set_effective_timeouts()` (5x in GEMINI mode) and notifies admins.
 
 ## Critical Workflows
 
@@ -32,14 +40,14 @@ HeadlineBot is a Telegram bot designed for **Google Colab**, **Kaggle**, and loc
 -   **`main.post_init`**: Adjusts idle timers (5x longer in Gemini mode) and notifies admins.
 
 ### 2. Transcription Pipeline
-1.  **Receive**: `FilesHandler` checks limits (10 mins for Gemini mode).
+1.  **Receive**: `FilesHandler` checks Telegram size limit (`BOT_FILESIZE_LIMIT`) + 20 min/file cap in GEMINI mode.
 2.  **Transcribe**:
     - **WHISPER Mode**: Local processing via `faster-whisper`.
-    - **GEMINI Mode**: Cloud processing via Google Gemini File API.
+    - **GEMINI Mode**: Cloud processing via Google Gemini File API (remote file deleted after use).
 3.  **Immediate Result**: Send "Done" message + `TS_...` file.
-4.  **AI Summary**: Call `utils.summarize_text`.
-5.  **Final Result**: Send `AI_...` file.
-6.  **Cleanup**: Local files removed.
+4.  **AI Summary**: Call `utils.summarize_text` (only when `ENABLE_GEMINI_FEATURES=true`).
+5.  **Final Result**: Send `SM_...` (summary) + `RT_...` (retouch, WHISPER mode only).
+6.  **Cleanup**: Local files removed; multipart timers cancelled on shutdown.
 
 ### 3. Image Color Correction Pipeline
 1.  **Receive**: `FilesHandler` detects image files (JPG, PNG, WEBP, etc.).
@@ -70,5 +78,5 @@ HeadlineBot is a Telegram bot designed for **Google Colab**, **Kaggle**, and loc
 
 ## Development Rules
 -   **Language**: English for all docs/comments.
--   **Verification**: Always ensure syntax checks (Python) pass.
--   **Commit**: Document changes in `walkthrough.md`.
+-   **Verification**: Always ensure syntax checks (Python) pass (`ruff check`, `compileall`).
+-   **Security**: Never log tokens; validate ZIP/TAR members; enforce Telegram chat allowlist including callbacks.

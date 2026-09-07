@@ -36,7 +36,13 @@ def set_dependencies(job_manager: "JobManager", upload_folder: str, main_loop: a
 
 
 def _get_telegram_chat_id() -> int:
-    """Get TELEGRAM_CHAT_ID from environment variable (set by Colab runner)."""
+    """Get TELEGRAM_CHAT_ID (single source: Config, fallback to env for CLI)."""
+    try:
+        from headlinebot.config import TELEGRAM_CHAT_ID as _CID
+        if _CID:
+            return int(_CID)
+    except Exception:
+        pass
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     if chat_id:
         return int(chat_id)
@@ -78,13 +84,29 @@ def process_upload(file_paths: list) -> str:
         log("GRADIO", f"Received: {original_filename} ({file_size_mb:.1f}MB)")
 
         # Queue the job on the main event loop (from sync thread)
-        if _main_loop is None:
-            log("ERROR", "Gradio: Main event loop not set!")
+        if _main_loop is None or not _main_loop.is_running():
+            log("ERROR", "Gradio: Main event loop not set or not running!")
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+            results.append(f"❌ {original_filename} (event loop unavailable)")
             continue
 
-        asyncio.run_coroutine_threadsafe(_queue_gradio_job(dest_path, original_filename, chat_id), _main_loop)
+        future = asyncio.run_coroutine_threadsafe(_queue_gradio_job(dest_path, original_filename, chat_id), _main_loop)
 
-        results.append(f"✅ {original_filename} ({file_size_mb:.2f} MB)")
+        def _log_done(fut, _fn=original_filename, _dp=dest_path):
+            try:
+                fut.result()
+            except Exception as e:
+                log("ERROR", f"Gradio queue failed for {_fn}: {e}")
+                try:
+                    if os.path.exists(_dp):
+                        os.remove(_dp)
+                except Exception:
+                    pass
+
+        future.add_done_callback(_log_done)
+
+        results.append(f"⏳ {original_filename} ({file_size_mb:.2f} MB) — queued, check Telegram for result")
 
     file_count = len(results)
     file_list = "\n".join(results)
@@ -108,18 +130,16 @@ async def _queue_gradio_job(file_path: str, filename: str, chat_id: int):
         probe = await asyncio.to_thread(ffmpeg.probe, file_path)
         duration = float(probe['format']['duration'])
 
-        # Create a mock message object for TranscriptionJob
-        class GradioMessage:
-            def __init__(self, chat_id: int, filename: str):
-                self.message_id = 0  # No reply needed for web uploads
-                self.chat_id = chat_id
-                self.from_user = None
-                self.chat = type('obj', (object,), {'title': 'Gradio Web Upload'})
-                self.effective_attachment = type('obj', (object,), {'file_name': filename})
-
-        mock_message = GradioMessage(chat_id, filename)
-        job = Job.from_message(mock_message, file_path, duration)
-        job.author_display_name = "Web Upload"
+        job = Job.from_parts(
+            message_id=0,
+            chat_id=chat_id,
+            filename=filename,
+            local_path=file_path,
+            author="Web Upload",
+            duration=duration,
+            job_type="transcript",
+            original_message=None,
+        )
 
         await _job_manager.add_job(job)
         log("GRADIO", f"[{job.job_id}] Queued: {filename}")
@@ -277,3 +297,13 @@ async def shutdown_gradio():
             log("GRADIO", "Server stopped")
         except Exception as e:
             log("ERROR", f"Gradio shutdown: {e}")
+
+
+def get_share_url() -> str | None:
+    """Return current Gradio share/local URL without reaching into internals."""
+    if gradio_app is None:
+        return None
+    share_url = getattr(gradio_app, "share_url", None)
+    if share_url:
+        return share_url
+    return getattr(gradio_app, "local_url", None)

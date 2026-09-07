@@ -16,10 +16,15 @@ falls back to os.environ — which the CLI runner fills from a local .env.
 """
 
 import os
+
 import requests
+
 from headlinebot.utils import detect_platform
 
 INFISICAL_API = "https://app.infisical.com/api/v1"
+_CRED_CACHE: dict | None = None
+
+
 def get_infisical_credentials(platform=None):
     """Retrieve Infisical credentials from platform-native secret stores.
 
@@ -27,41 +32,59 @@ def get_infisical_credentials(platform=None):
     colab-CLI sessions userdata.get()/kaggle secrets are unreachable
     (TimeoutException), and the CLI runner provides the 4 INFISICAL_*
     values via environment instead. Web behavior is unchanged.
+    Results are cached per process to avoid double userdata latency.
     """
+    global _CRED_CACHE
     if platform is None:
         platform = detect_platform()
+    # Cache only the default-platform lookup (explicit platform bypasses cache)
+    if _CRED_CACHE is not None and platform == _CRED_CACHE.get("_platform"):
+        c = _CRED_CACHE
+        return (c["client_id"], c["client_secret"], c["project_id"], c["environment"])
 
+    source = "env"
     if platform == "kaggle":
         try:
             from kaggle_secrets import UserSecretsClient
             client = UserSecretsClient()
-            return (
+            creds = (
                 client.get_secret("INFISICAL_CLIENT_ID"),
                 client.get_secret("INFISICAL_CLIENT_SECRET"),
                 client.get_secret("INFISICAL_PROJECT_ID"),
                 client.get_secret("INFISICAL_ENV") or "dev",
             )
+            source = "kaggle"
+            _CRED_CACHE = {"_platform": platform, "client_id": creds[0], "client_secret": creds[1], "project_id": creds[2], "environment": creds[3]}
+            print(f"🔐 Infisical credentials source: {source}", flush=True)
+            return creds
         except Exception:
             pass
 
     elif platform == "colab":
         try:
             from google.colab import userdata
-            return (
+            creds = (
                 userdata.get("INFISICAL_CLIENT_ID"),
                 userdata.get("INFISICAL_CLIENT_SECRET"),
                 userdata.get("INFISICAL_PROJECT_ID"),
                 userdata.get("INFISICAL_ENV") or "dev",
             )
+            source = "colab"
+            _CRED_CACHE = {"_platform": platform, "client_id": creds[0], "client_secret": creds[1], "project_id": creds[2], "environment": creds[3]}
+            print(f"🔐 Infisical credentials source: {source}", flush=True)
+            return creds
         except Exception:
             pass
 
-    return (
+    creds = (
         os.environ.get("INFISICAL_CLIENT_ID"),
         os.environ.get("INFISICAL_CLIENT_SECRET"),
         os.environ.get("INFISICAL_PROJECT_ID"),
         os.environ.get("INFISICAL_ENV", "dev"),
     )
+    _CRED_CACHE = {"_platform": platform, "client_id": creds[0], "client_secret": creds[1], "project_id": creds[2], "environment": creds[3]}
+    print(f"🔐 Infisical credentials source: {source}", flush=True)
+    return creds
 
 
 def _login(client_id, client_secret):

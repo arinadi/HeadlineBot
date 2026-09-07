@@ -21,27 +21,51 @@ from PIL import Image
 from headlinebot.utils import log
 
 # ─────────────────────────────────────────────────
-# ⚙️  CONFIGURATION
+# ⚙️  CONFIGURATION (single source: headlinebot.config.Config)
 # ─────────────────────────────────────────────────
-GEMMA_MODEL = os.getenv('GEMMA_MODEL', 'models/gemma-4-26b-a4b-it')
-JPEG_QUALITY = int(os.getenv('JPEG_QUALITY', 95))
+try:
+    from headlinebot.config import Config as _Cfg
+    GEMMA_MODEL = _Cfg.GEMMA_MODEL
+    JPEG_QUALITY = _Cfg.JPEG_QUALITY
+except Exception:
+    import os as _os
+    GEMMA_MODEL = _os.getenv('GEMMA_MODEL', 'models/gemma-4-26b-a4b-it')
+    JPEG_QUALITY = int(_os.getenv('JPEG_QUALITY', 95))
 
 # ─────────────────────────────────────────────────
 # 📦  LOAD PRESETS
 # ─────────────────────────────────────────────────
-_PRESETS_PATH = os.path.join(os.path.dirname(__file__), "docs", "presets.json")
+# Single source: headlinebot/presets.json. Fall back to repo-root
+# presets.json for transition, then legacy docs/presets.json.
+_HERE = os.path.dirname(__file__)
+_REPO_ROOT = os.path.dirname(_HERE)
+_PRESETS_CANDIDATES = [
+    os.path.join(_HERE, "presets.json"),
+    os.path.join(_REPO_ROOT, "presets.json"),
+    os.path.join(_HERE, "docs", "presets.json"),
+]
+_PRESETS_PATH = _PRESETS_CANDIDATES[0]
 _PRESETS_DATA: dict[str, Any] = {}
 
 def _load_presets() -> dict[str, Any]:
-    """Load presets from JSON file."""
-    global _PRESETS_DATA
-    try:
-        with open(_PRESETS_PATH) as f:
-            _PRESETS_DATA = json.load(f)
-        log("IMAGE", f"Loaded {len(_PRESETS_DATA.get('presets', {}))} presets from presets.json")
-    except Exception as e:
-        log("IMAGE", f"Failed to load presets: {e}, using empty presets")
-        _PRESETS_DATA = {"presets": {}, "parameter_locks": {}, "condition_codes": []}
+    """Load presets from JSON file (first existing candidate wins)."""
+    global _PRESETS_DATA, _PRESETS_PATH
+    for candidate in _PRESETS_CANDIDATES:
+        try:
+            with open(candidate) as f:
+                _PRESETS_DATA = json.load(f)
+            _PRESETS_PATH = candidate
+            log("IMAGE", f"Loaded {len(_PRESETS_DATA.get('presets', {}))} presets from {candidate}")
+            return _PRESETS_DATA
+        except FileNotFoundError:
+            continue
+        except Exception as e:
+            log("IMAGE", f"Failed to load presets from {candidate}: {e}, using empty presets")
+            _PRESETS_DATA = {"presets": {}, "parameter_locks": {}, "condition_codes": []}
+            return _PRESETS_DATA
+    log("IMAGE", f"Failed to load presets: none of {_PRESETS_CANDIDATES} found, using empty presets")
+    _PRESETS_DATA = {"presets": {}, "parameter_locks": {}, "condition_codes": []}
+    return _PRESETS_DATA
 
 def _get_preset(condition: str) -> dict[str, Any]:
     """Get preset params for a condition code."""
@@ -62,13 +86,14 @@ def _apply_locks(params: dict[str, Any], locks: dict[str, Any]) -> dict[str, Any
 
     result = params.copy()
 
-    # Handle range locks (e.g., "c": [0.90, 1.05])
+    # Handle range locks (e.g., "c": [0.90, 1.05]). Normalize reversed ranges.
     for key, val in locks.items():
         if key.endswith("_min") or key.endswith("_max"):
             continue
         if isinstance(val, list) and len(val) == 2:
             if key in result:
-                result[key] = np.clip(result[key], val[0], val[1])
+                lo, hi = (val[0], val[1]) if val[0] <= val[1] else (val[1], val[0])
+                result[key] = np.clip(result[key], lo, hi)
 
     # Handle min locks (e.g., "d_min": 30)
     for key, val in locks.items():
@@ -87,8 +112,22 @@ def _apply_locks(params: dict[str, Any], locks: dict[str, Any]) -> dict[str, Any
     return result
 
 
+def _format_locks_for_prompt() -> str:
+    """Render parameter_locks JSON as prompt lines (single source from presets)."""
+    locks = _PRESETS_DATA.get("parameter_locks", {})
+    if not locks:
+        return "- (no locks loaded)"
+    lines = []
+    for condition in sorted(locks):
+        lines.append(f"- {condition}: {json.dumps(locks[condition], sort_keys=True)}")
+    lines.append("- SKIN (any): v<=1.3, s<=1.2")
+    return "\n".join(lines)
+
+
 # Load presets at import time
 _load_presets()
+if len(_PRESETS_DATA.get("presets", {})) != 16 or "BACKLIGHT" not in _PRESETS_DATA.get("presets", {}):
+    log("IMAGE", f"WARNING: expected 16 presets incl. BACKLIGHT, got {len(_PRESETS_DATA.get('presets', {}))}")
 
 
 # ─────────────────────────────────────────────────
@@ -107,7 +146,7 @@ CLASSIFY_PROMPT = (
     "- If unsure, output DAYLIGHT.\n"
 )
 
-# Pass 2: Correction prompt
+# Pass 2: Correction prompt (locks injected from presets JSON via _format_locks_for_prompt)
 CORRECT_PROMPT_TEMPLATE = (
     "You are a professional photo colorist. A photo has been classified as: {condition}\n\n"
     "Base preset for this condition:\n{preset_json}\n\n"
@@ -123,12 +162,8 @@ CORRECT_PROMPT_TEMPLATE = (
     "w = warmth      (-40..40)    t = tint        (-30..30)\n"
     "p = sharpness   (0.5..2.0)   l = clarity     (-20..60)\n"
     "x = description (max 12 words)\n\n"
-    "PARAMETER LOCKS (non-negotiable):\n"
-    "- BACKLIGHT: c=0.90..1.05, d>=+30, h<=-25\n"
-    "- GREEN_SPILL: t=+10..+28, s<=0.95\n"
-    "- LOWLIGHT: b>=+15, d>=+20, c>=1.0\n"
-    "- PORTRAIT: l=-8..-15, p=0.8..0.95, v<=1.2\n"
-    "- SKIN (any): v<=1.3, s<=1.2\n\n"
+    "PARAMETER LOCKS (non-negotiable, from presets.json):\n"
+    "{locks_text}\n\n"
     "RULES: Output ONLY the JSON. Never refuse. Never add explanation outside JSON."
 )
 
@@ -212,6 +247,7 @@ def analyze_image(image_path: str, gemini_client) -> dict[str, Any]:
         prompt2 = CORRECT_PROMPT_TEMPLATE.format(
             condition=condition,
             preset_json=preset_json,
+            locks_text=_format_locks_for_prompt(),
         )
 
         log("IMAGE", "Pass 2: Fine-tuning parameters...")

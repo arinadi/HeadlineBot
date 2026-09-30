@@ -38,6 +38,26 @@ def run_command(cmd):
     print(f"Executing: {cmd}", flush=True)
     return os.system(cmd)
 
+def git_auth_env():
+    """Env that sends GITHUB_TOKEN as an HTTP header for this git call only.
+
+    A token inside the clone URL is printed by run_command, stored in
+    .git/config and visible in `ps`; an env-provided http.extraHeader is none of those.
+    """
+    token = os.environ.get('GITHUB_TOKEN')
+    if not token:
+        return None
+    import base64
+    cred = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    return {**os.environ, "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "http.extraHeader",
+            "GIT_CONFIG_VALUE_0": f"Authorization: Basic {cred}"}
+
+def run_git(*args):
+    """Run git without a shell; the auth header never reaches argv or the log."""
+    print(f"Executing: git {' '.join(args)}", flush=True)
+    return subprocess.call(["git", *args], env=git_auth_env())
+
 def run_command_streaming(cmd):
     """Run command with real-time streaming output (important for Kaggle)."""
     print(f"Executing: {cmd}", flush=True)
@@ -176,21 +196,16 @@ def main():
         print("🔄 Lifecycle: IN-PLACE (repo already here, skipping git)...", flush=True)
     elif os.path.exists(".git"):
         print(f"⏳ Updating current directory (branch: {branch})...", flush=True)
-        run_command(f"git fetch --depth 1 origin {branch}")
-        run_command(f"git reset --hard origin/{branch}")
+        run_git("fetch", "--depth", "1", "origin", branch)
+        run_git("reset", "--hard", f"origin/{branch}")
     elif os.path.exists(REPO_NAME):
         print(f"⏳ Entering and updating {REPO_NAME} (branch: {branch})...", flush=True)
         os.chdir(REPO_NAME)
-        run_command(f"git fetch --depth 1 origin {branch}")
-        run_command(f"git reset --hard origin/{branch}")
+        run_git("fetch", "--depth", "1", "origin", branch)
+        run_git("reset", "--hard", f"origin/{branch}")
     else:
         print(f"⏳ Cloning {REPO_NAME} (branch: {branch})...", flush=True)
-        token = os.environ.get('GITHUB_TOKEN')
-        clone_url = REPO_URL
-        if token and "github.com" in clone_url:
-            clone_url = clone_url.replace("https://", f"https://{token}@")
-
-        rc = run_command(f"git clone --depth 1 --branch {branch} {clone_url}")
+        rc = run_git("clone", "--depth", "1", "--branch", branch, REPO_URL, REPO_NAME)
         if rc != 0:
             print("⚠️ Git clone failed. Trying direct download...", flush=True)
             if not download_repo_fallback(branch):

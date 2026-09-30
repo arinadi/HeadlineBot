@@ -43,10 +43,16 @@ cmd_up() {
     command -v colab >/dev/null || { echo "colab CLI not found" >&2; exit 1; }
 
     local tarball="${SCRIPT_DIR}/hb.tar.gz"
-    echo "[up] packing ${REPO_DIR} (no .git)..."
+    echo "[up] packing ${REPO_DIR} (code only)..."
     # --transform pins the top-level dir to HeadlineBot/ whatever the local
-    # folder is named, so bootstrap.py always finds it.
-    tar -czf "${tarball}" --exclude=.git --transform 's,^[^/]*,HeadlineBot,' \
+    # folder is named, so bootstrap.py always finds it. .env is uploaded
+    # separately and must never ride inside the tarball; local job files,
+    # caches and this script's own outputs don't belong on the VM either.
+    tar -czf "${tarball}" --transform 's,^[^/]*,HeadlineBot,' \
+        --exclude=.git --exclude=.env --exclude=.claude --exclude=__pycache__ \
+        --exclude=.ruff_cache --exclude=.pytest_cache \
+        --exclude=uploads --exclude=transcripts --exclude=edited_images \
+        --exclude=hb.tar.gz --exclude=bootstrap.conf \
         -C "${REPO_PARENT}" "${REPO_BASE}"
 
     printf 'DEPS=%s\nVERSION=%s\n' "${DEPS}" "${VERSION}" > "${SCRIPT_DIR}/bootstrap.conf"

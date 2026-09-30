@@ -180,11 +180,12 @@ async def perform_shutdown(reason: str):
     except Exception as e:
         log("ERROR", f"Final notification failed: {e}")
 
-    # 2. Stop the Telegram polling loop (this unblocks run_polling)
+    # 2. Ask run_polling to return. PTB forbids awaiting application.stop() from
+    # inside a handler/task it is running; stop_running() is the supported way.
     try:
         if application:
-            await application.stop()
-            log("SHUTDOWN", "Polling stopped")
+            application.stop_running()
+            log("SHUTDOWN", "Polling stop requested")
     except Exception as e:
         log("ERROR", f"Failed to stop polling: {e}")
 
@@ -745,6 +746,12 @@ async def extend_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    # CallbackQueryHandler has no chat filter, and a forwarded bot message keeps its
+    # buttons — without this check anyone could press shutdown/cancel from another chat.
+    if not query.message or query.message.chat_id != TELEGRAM_CHAT_ID:
+        await query.answer("⛔ Not allowed here.", show_alert=True)
+        log("SECURITY", f"Blocked callback '{query.data}' from user {query.from_user.id if query.from_user else '?'}")
+        return
     await query.answer()
     data = query.data
 
@@ -755,6 +762,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except telegram.error.BadRequest:
             pass
     elif data == "shutdown_bot":
+        # Two-step: one mis-tap on 🔌 would otherwise kill the runtime and every queued job.
+        keyboard = [[InlineKeyboardButton("✅ Yes, shut down", callback_data="shutdown_confirm"),
+                     InlineKeyboardButton("« Cancel", callback_data="refresh_status")]]
+        await query.edit_message_text("🔌 *Shut down the bot?*\nQueued jobs will be lost.",
+                                      reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+    elif data == "shutdown_confirm":
         await query.edit_message_text("🔴 *MANUAL SHUTDOWN INITIATED...*", parse_mode=ParseMode.MARKDOWN)
         await perform_shutdown(f"Manual Shutdown by {query.from_user.first_name}")
     elif data == "view_cancel_jobs":
@@ -787,7 +800,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # SECTION 7: MAIN ENTRY POINT
 # ------------------------------------------------------------------------------
 
-async def main():
+def main():
     global application, idle_monitor, job_manager, files_handler
 
     print("🚀 Starting Main Application...")
@@ -871,70 +884,36 @@ async def main():
     application.add_handler(MessageHandler(filters.ATTACHMENT & chat_filter, files_handler.handle_files))
 
 
-    # Error Handler with retry tracking
-    _transient_error_counts = {}  # Track consecutive transient errors
-    MAX_TRANSIENT_RETRIES = 2
-
     async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-
+        """Logs handler errors and tells the user. Never shuts down: one bad update
+        (e.g. a Markdown BadRequest from an odd filename) must not kill the bot."""
         error = context.error
-        error_name = type(error).__name__
-        print(f"❌ Exception while handling an update: {error_name}: {error}")
+        # PTB already retries network failures and flood waits (RetryAfter) itself.
+        if isinstance(error, (telegram.error.NetworkError, telegram.error.RetryAfter)):
+            log("ERROR", f"Transient Telegram error: {type(error).__name__}: {error}")
+            return
+        # Bot blocked/kicked from that chat: replying there would fail the same way.
+        if isinstance(error, telegram.error.Forbidden):
+            log("ERROR", f"Forbidden: {error}")
+            return
 
-        # List of transient network/connection errors that should NOT trigger shutdown
-        transient_errors = (
-            # httpx errors
-            'ReadError', 'WriteError', 'ConnectError', 'ConnectTimeout', 'ReadTimeout', 'WriteTimeout',
-            'PoolTimeout', 'CloseError', 'ProxyError', 'ProtocolError', 'RemoteProtocolError',
-            'LocalProtocolError', 'UnsupportedProtocol', 'DecodingError',
-            # SSL errors
-            'SSLError', 'SSLCertVerificationError',
-            # Telegram-bot errors
-            'TimeoutException', 'NetworkError', 'TimedOut', 'RetryAfter', 'Forbidden',
-            # General connection
-            'ConnectionError', 'ConnectionResetError', 'ConnectionRefusedError', 'BrokenPipeError',
-            'OSError', 'IOError', 'socket.error', 'socket.timeout'
-        )
-
-        if error_name in transient_errors:
-            # Track retry count
-            _transient_error_counts[error_name] = _transient_error_counts.get(error_name, 0) + 1
-            count = _transient_error_counts[error_name]
-
-            if count <= MAX_TRANSIENT_RETRIES:
-                print(f"⚠️ [ERROR_HANDLER] Transient error {error_name} ({count}/{MAX_TRANSIENT_RETRIES}) - will retry")
-                return  # Don't shutdown, let telegram-bot retry
-            else:
-                print(f"🔴 [ERROR_HANDLER] Transient error {error_name} exceeded {MAX_TRANSIENT_RETRIES} retries - network may be unstable")
-                _transient_error_counts[error_name] = 0  # Reset counter
-                return  # Still don't shutdown, but log critical warning
-
-        # Reset counters on non-transient error
-        _transient_error_counts.clear()
-
-        # Notify user if possible (wrapped in try-except)
+        log("ERROR", f"Unhandled error in update handler: {type(error).__name__}: {error}")
         try:
-            if update and isinstance(update, Update) and update.effective_message:
-                text = f"❌ *An error occurred:* `{error}`"
-                await update.effective_message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+            if isinstance(update, Update) and update.effective_message:
+                # Plain text: the error message itself may contain Markdown characters.
+                await update.effective_message.reply_text(f"❌ An error occurred: {error}")
         except Exception as notify_err:
-            print(f"⚠️ [ERROR_HANDLER] Could not send error notification: {notify_err}")
-
-        # Trigger safe shutdown only for critical errors
-        await perform_shutdown(f"Application Error: {error}")
+            log("ERROR", f"Could not send error notification: {notify_err}")
 
     application.add_error_handler(global_error_handler)
 
-    # ⚡ FAST INIT: Initialize bot connection FIRST (before background tasks)
-    # await application.initialize() -> Managed by run_polling
-    # log("INIT", f"Bot online ({get_runtime()})")
-
-    # Run polling - bot starts receiving messages immediately
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # run_polling is synchronous (it owns the event loop); awaiting its None return
+    # used to raise TypeError, so every clean shutdown was reported as a crash.
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        main()
     except KeyboardInterrupt:
         print("🛑 Bot stopped by user.")
     except Exception as e:

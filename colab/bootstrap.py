@@ -61,7 +61,9 @@ def main():
         shutil.rmtree(RUN_DIR)
     os.makedirs(RUN_DIR)
     with tarfile.open(tarball, "r:gz") as tf:
-        tf.extractall(RUN_DIR)
+        # filter="data" refuses absolute paths, "..", links out of RUN_DIR and
+        # device files (Python 3.12+, which Colab runs).
+        tf.extractall(RUN_DIR, filter="data")
     app_dir = os.path.join(RUN_DIR, "HeadlineBot")
     if not os.path.isdir(app_dir):
         raise SystemExit("extracted tree has no HeadlineBot/ dir")

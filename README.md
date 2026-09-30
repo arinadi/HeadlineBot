@@ -143,6 +143,7 @@ Di Kaggle notebook menu **Add-ons > Secrets** (atau panel kiri), tambahkan:
 import os, subprocess, urllib.request
 
 # ── Set Versi ──
+VERSION = 'prod'  # ← 'prod' atau 'beta'
 os.environ['HEADLINEBOT_VERSION'] = VERSION
 _branch = 'beta' if VERSION == 'beta' else 'main'
 _base = f'https://raw.githubusercontent.com/arinadi/HeadlineBot/{_branch}'
@@ -180,7 +181,7 @@ for line in proc.stdout:
 ```
 
 > **Catatan Kaggle:**
-> - Edit `VERSION`, `PROJECT_ID`, `ENVIRONMENT` di atas, lalu run cell (Shift+Enter).
+> - Edit `VERSION` di atas, lalu run cell (Shift+Enter).
 > - HeadlineBot otomatis memuat semua secrets dari Infisical Cloud.
 > - Idle monitor aktif — bot mati otomatis saat idle (hemat GPU credits).
 > - Maksimal eksekusi ~9-12 jam per sesi.
@@ -230,8 +231,10 @@ dari Infisical (`platform="local"`) → install deps → jalankan bot detached.
 ### 🎙️ Transkripsi Cepat
 Kirim audio atau video. HeadlineBot mengubahnya menjadi teks lengkap tanpa timestamp.
 - **GPU Mode**: Whisper large-v2 — akurasi tinggi, tanpa batas durasi
-- **CPU Mode**: Gemini Cloud — otomatis pilih model terbaru (fallback otomatis jika Whisper gagal download)
+- **CPU Mode**: Gemini Cloud — otomatis pilih model terbaru, maks 20 menit per file (juga dipakai otomatis jika Whisper gagal dimuat)
 - **Format**: MP3, MP4, WAV, M4A, WEBM, OGG, FLAC, MKV
+
+> Fitur AI di bawah (ringkasan, koreksi foto, retouch) aktif hanya jika `ENABLE_GEMINI_FEATURES=true` dan `GEMINI_API_KEY` diset. Default: mati — foto dikirim balik apa adanya.
 
 ### 📝 Ringkasan Jurnalistik
 Transkrip 30 menit → ringkasan 1 menit yang siap kirim ke editor. Menggunakan Gemma 4 (atau flash terbaru) via Smart Model Manager:
@@ -246,8 +249,9 @@ Semua dalam Bahasa Indonesia, format jurnalistik.
 ### 🎨 Koreksi Warna Foto
 Kirim foto dari lapangan — cahaya minim, warna belang, backlight:
 - **Gemma 4 AI** menganalisis foto dan menentukan parameter koreksi
-- **OpenCV Pipeline**: White balance → Brightness → Contrast → Saturation → Vibrance → Sharpness
-- **Quality Guard**: Jika koreksi memperburuk gambar, foto original tetap dikirim
+- **Preset per kondisi** (`presets.json`): AI mengklasifikasi kondisi foto (BACKLIGHT, LOWLIGHT, PORTRAIT, ...), lalu menyetel preset-nya dengan batas parameter yang terkunci
+- **OpenCV Pipeline**: White balance → Brightness → Contrast → Highlights/Shadows → Saturation → Vibrance → Clarity/Sharpness
+- **Quality Guard**: Jika hasil koreksi rusak (terlalu terang atau datar), foto original yang dikirim
 
 ### 🔧 Retouch Transkrip
 Transkrip Whisper → diperbaiki typonya, tanda baca, dan paragraph breaks otomatis via Gemma 4.
@@ -255,7 +259,7 @@ Transkrip Whisper → diperbaiki typonya, tanda baca, dan paragraph breaks otoma
 ### 📁 Multi-Part ZIP
 Kirim arsip ZIP berpartisi (.zip.01, .zip.02, dst). HeadlineBot akan:
 1. Menggabungkan semua part secara otomatis
-2. Mengekstrak file audio dari dalamnya
+2. Mengekstrak file audio dari dalamnya (arsip dengan path berbahaya, symlink, atau > 2 GB setelah ekstrak ditolak)
 3. Memproses satu per satu ke queue
 
 ---
@@ -272,19 +276,17 @@ Kirim arsip ZIP berpartisi (.zip.01, .zip.02, dst). HeadlineBot akan:
 | **Model Management** | 🤖 Auto-detect & sort by version | ⚙️ Hardcoded |
 | **Batas Durasi** | ♾️ Tanpa batas (GPU) | ⏱️ 10-60 menit |
 | **Harga** | 💰 Gratis (Colab/Kaggle) | 💸 $0.006/menit |
-| **Offline** | ✅ GPU local processing | ❌ Selalu online |
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **OpenAI Whisper** — Transkripsi suara terbaik di dunia, berjalan lokal di GPU
+- **faster-whisper** (Whisper di CTranslate2) — Transkripsi suara, berjalan lokal di GPU
 - **Google Gemini** — Ringkasan cerdas & transkripsi cloud fallback
 - **Gemma 4** — Analisis warna foto dengan AI
 - **Smart Model Manager** — Auto-detect model tersedia, sort by versi, primary + fallback chain
 - **OpenCV** — Pipeline koreksi warna profesional
 - **python-telegram-bot** — Handler Telegram async yang stabil
-- **Gradio** — Web UI alternatif untuk upload file besar
 
 ---
 ## 📂 File Structure
@@ -299,14 +301,18 @@ HeadlineBot/
 │   ├── secrets.py         # Infisical Cloud secret management (E2E encrypted)
 │   ├── model_manager.py   # Smart model discovery — auto-detect flash/gemma
 │   ├── image_editor.py    # AI color correction pipeline (Gemma 4 + OpenCV)
-│   ├── gradio_handler.py  # Web UI untuk file besar
 │   └── utils.py           # Summarization, retouch, formatting, platform detection
+├── tests/                 # pytest (jalan di CI)
 ├── main.py                # Core bot — handlers, queue, worker
 ├── start.py               # GPU/CPU detection, launcher
 ├── runner.py              # Entry point (web: clone/update; CLI: in-place)
 ├── colab/                 # colab-CLI support: colab-run.sh + bootstrap.py
-├── requirements.txt       # Dependencies (GPU + CPU)
-└── requirements_cpu.txt   # CPU-only dependencies
+├── presets.json           # Preset & parameter lock koreksi warna per kondisi foto
+├── agent.md               # Konteks untuk AI coding agent
+├── pyproject.toml         # Konfigurasi ruff & pytest
+├── requirements.txt       # GPU: requirements_cpu.txt + faster-whisper
+├── requirements_cpu.txt   # CPU: semua yang di-import main.py
+└── requirements-dev.txt   # CPU + ruff + pytest
 ```
 
 ---
@@ -337,14 +343,14 @@ Semua 4 variable ini disimpan di **Kaggle/Colab Secrets** (sekali saja):
 | `INFISICAL_PROJECT_ID` | Dari URL: `app.infisical.com/project/XXX/secrets` |
 | `INFISICAL_ENV` | `dev`, `staging`, atau `prod` |
 
-> 💡 Semua secret aplikasi (TELEGRAM_BOT_TOKEN, GEMINI_API_KEY, dll) disimpan di Infisical Cloud. Lihat [Setup Infisical](#-setup-infisical) di bawah.
+> 💡 Semua secret aplikasi (TELEGRAM_BOT_TOKEN, GEMINI_API_KEY, dll) disimpan di Infisical Cloud. Lihat [Setup Infisical](#-setup-infisical) di atas.
 
 ### Bot Settings
 
 | Variable | Default | Keterangan |
 | :--- | :--- | :--- |
 | `HEADLINEBOT_VERSION` | `prod` | Versi: `prod` (branch main) atau `beta` (branch beta) |
-| `ENABLE_GEMINI_FEATURES` | `false` | Enable summary/retouch/photo *(⚠️ sementara `false`)* |
+| `ENABLE_GEMINI_FEATURES` | `false` | Aktifkan ringkasan, retouch, dan koreksi foto (butuh `GEMINI_API_KEY`) |
 | `MODEL_SIZE` | `large-v2` | Whisper model size |
 | `BOT_FILESIZE_LIMIT` | `20` | Max MB per file |
 | `ENABLE_IDLE_MONITOR` | `True` | Auto-shutdown saat idle (hemat Colab/Kaggle credits) |
@@ -373,25 +379,20 @@ Semua 4 variable ini disimpan di **Kaggle/Colab Secrets** (sekali saja):
 
 ## 🛠️ Development
 
-### Lint (Colab / Kaggle)
+### Lint & Test
 
-```python
-import os, subprocess
+CI (GitHub Actions, Python 3.12) menjalankan hal yang sama di setiap push/PR ke `main` dan `beta`:
 
-# Clone atau pull
-if os.path.exists('HeadlineBot'):
-    os.chdir('HeadlineBot')
-    subprocess.run(['git', 'pull'], check=True)
-else:
-    subprocess.run(['git', 'clone', 'https://github.com/arinadi/HeadlineBot.git'], check=True)
-    os.chdir('HeadlineBot')
-
-# Install & jalankan ruff
-subprocess.run(['pip', 'install', 'ruff', '-q'])
-subprocess.run(['ruff', 'check', '.', '--output-format=concise'])
+```bash
+pip install -r requirements-dev.txt
+ruff check .
+python -m compileall -q .
+pytest -q
 ```
 
-> **Kaggle:** Pastikan Internet access diaktifkan di Settings sebelum menjalankan lint.
+### Alur Branch
+
+Perubahan masuk ke `beta` dulu, dites di Colab dengan `VERSION = 'beta'`, lalu `main` di-fast-forward ke `beta`.
 
 ---
 

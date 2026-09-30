@@ -18,13 +18,13 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from headlinebot.config import Config
+from headlinebot import config
 from headlinebot.utils import log
 
 # ─────────────────────────────────────────────────
 # ⚙️  CONFIGURATION
 # ─────────────────────────────────────────────────
-JPEG_QUALITY = Config.JPEG_QUALITY
+JPEG_QUALITY = config.JPEG_QUALITY
 
 # ─────────────────────────────────────────────────
 # 📦  LOAD PRESETS

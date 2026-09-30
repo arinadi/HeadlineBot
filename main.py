@@ -20,7 +20,6 @@ from werkzeug.utils import secure_filename
 
 from headlinebot import config
 from headlinebot.bot_classes import FilesHandler, IdleMonitor, Job, JobManager
-from headlinebot.config import Config
 from headlinebot.image_editor import edit_image
 from headlinebot.llm import build_llm
 from headlinebot.model_manager import discover_models
@@ -38,28 +37,6 @@ from headlinebot.utils import (
 
 # --- Transcription Mode ---
 MODE = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')
-
-# --- Secrets & Config Alias ---
-TELEGRAM_BOT_TOKEN = config.TELEGRAM_BOT_TOKEN
-TELEGRAM_CHAT_ID = config.TELEGRAM_CHAT_ID
-GEMINI_API_KEY = config.GEMINI_API_KEY
-
-# Config Shortcuts
-WHISPER_MODEL = Config.WHISPER_MODEL
-WHISPER_PRECISION = Config.WHISPER_PRECISION
-WHISPER_BEAM_SIZE = Config.WHISPER_BEAM_SIZE
-WHISPER_PATIENCE = Config.WHISPER_PATIENCE
-WHISPER_TEMPERATURE = Config.WHISPER_TEMPERATURE
-WHISPER_REPETITION_PENALTY = Config.WHISPER_REPETITION_PENALTY
-WHISPER_NO_REPEAT_NGRAM_SIZE = Config.WHISPER_NO_REPEAT_NGRAM_SIZE
-VAD_FILTER = Config.VAD_FILTER
-VAD_THRESHOLD = Config.VAD_THRESHOLD
-VAD_MIN_SPEECH_DURATION_MS = Config.VAD_MIN_SPEECH_DURATION_MS
-VAD_MIN_SILENCE_DURATION_MS = Config.VAD_MIN_SILENCE_DURATION_MS
-VAD_SPEECH_PAD_MS = Config.VAD_SPEECH_PAD_MS
-BOT_FILESIZE_LIMIT = Config.BOT_FILESIZE_LIMIT
-ENABLE_IDLE_MONITOR = Config.ENABLE_IDLE_MONITOR
-ENABLE_AI_FEATURES = Config.ENABLE_AI_FEATURES
 
 # Detect Runtime Environment (Kaggle > Colab > Local)
 IS_COLAB = False
@@ -81,10 +58,10 @@ except ImportError:
         runtime = MockRuntime()
 
 # Validation
-if not all([TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
+if not all([config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID]):
     print("❌ ERROR: Core secrets (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) are missing.")
 
-if not GEMINI_API_KEY:
+if not config.GEMINI_API_KEY:
     print("⚠️ WARNING: GEMINI_API_KEY not set. CPU-mode transcription and LLM_PROVIDER=gemini are unavailable.")
 
 # Constants
@@ -139,7 +116,7 @@ STARTUP_MESSAGE_ID: int | None = None
 async def send_telegram_notification(app: Application, message: str):
     """Sends a formatted message to the designated admin chat."""
     try:
-        await app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode=ParseMode.MARKDOWN)
+        await app.bot.send_message(chat_id=config.TELEGRAM_CHAT_ID, text=message, parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
         log("ERROR", f"Telegram notification failed: {e}")
 
@@ -187,10 +164,10 @@ async def perform_shutdown(reason: str):
 async def init_gemini():
     """Create the Gemini client and discover model chains (no-op without an API key)."""
     global gemini_client
-    if not GEMINI_API_KEY:
+    if not config.GEMINI_API_KEY:
         return
     from google import genai  # lazy: pulls in a large SDK
-    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    gemini_client = genai.Client(api_key=config.GEMINI_API_KEY)
     set_model_chains(await discover_models(gemini_client))
     log("INIT", "Gemini ready")
 
@@ -200,13 +177,13 @@ async def init_ai_llm():
     photo (the admin is told why); transcription keeps working."""
     global ai_llm
     try:
-        ai_llm = build_llm(Config.LLM_PROVIDER, gemini_client, Config.OPENAI_COMPAT_BASE_URL,
-                           config.OPENAI_COMPAT_API_KEY, Config.OPENAI_COMPAT_MODELS,
-                           Config.OPENAI_COMPAT_VISION_MODELS)
+        ai_llm = build_llm(config.LLM_PROVIDER, gemini_client, config.OPENAI_COMPAT_BASE_URL,
+                           config.OPENAI_COMPAT_API_KEY, config.OPENAI_COMPAT_MODELS,
+                           config.OPENAI_COMPAT_VISION_MODELS)
     except ValueError as e:
         ai_llm = None
         log("ERROR", f"AI provider unavailable: {e}")
-        if ENABLE_AI_FEATURES:
+        if config.ENABLE_AI_FEATURES:
             await send_telegram_notification(application, f"⚠️ *AI features off:* `{md_code(e)}`")
         return
     log("INIT", f"AI provider: {ai_llm.name if ai_llm else 'none'}")
@@ -279,7 +256,7 @@ async def initialize_models_background():
             compute_type = "float16" if device == "cuda" else "int8"
 
             # User override logic
-            prec_cfg = str(WHISPER_PRECISION).lower()
+            prec_cfg = str(config.WHISPER_PRECISION).lower()
             if prec_cfg == 'false' or prec_cfg == 'float32':
                 compute_type = "float32"
             elif prec_cfg == 'float16':
@@ -290,13 +267,13 @@ async def initialize_models_background():
             # Download model files via raw HTTP (bypass Xet which hangs on Colab)
             # Hardcoded file list for CTranslate2 model (no HF API needed)
             _files = ["config.json", "model.bin", "tokenizer.json", "vocabulary.txt"]
-            log("INIT", f"Downloading {len(_files)} files for {WHISPER_MODEL} via raw HTTP...")
-            _repo = "Systran/faster-whisper-large-v2" if WHISPER_MODEL == "large-v2" else f"Systran/faster-whisper-{WHISPER_MODEL}"
-            _local_dir = os.path.expanduser(f"~/.cache/whisper_models/{WHISPER_MODEL}")
+            log("INIT", f"Downloading {len(_files)} files for {config.WHISPER_MODEL} via raw HTTP...")
+            _repo = "Systran/faster-whisper-large-v2" if config.WHISPER_MODEL == "large-v2" else f"Systran/faster-whisper-{config.WHISPER_MODEL}"
+            _local_dir = os.path.expanduser(f"~/.cache/whisper_models/{config.WHISPER_MODEL}")
             os.makedirs(_local_dir, exist_ok=True)
 
             import requests as _req
-            hf_token = os.getenv("HF_TOKEN", "")
+            hf_token = config.HF_TOKEN or ""
             _headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
             start_ts = time.time()
 
@@ -390,15 +367,15 @@ def startup_message() -> tuple[str, InlineKeyboardMarkup]:
     """Text and keyboard of the pinned-style startup message, for its current state."""
     ai_status = "✅ Kitchen Open" if models_ready_event.is_set() else "⏳ Preparing..."
     hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
-    ai_features = Config.LLM_PROVIDER if ENABLE_AI_FEATURES else "off"
+    ai_features = config.LLM_PROVIDER if config.ENABLE_AI_FEATURES else "off"
     text = (
         f"📰 *Welcome to HeadlineBot*\n"
         f"Your AI assistant for front-line reporting. Send your files anytime.\n\n"
         f"🛠️ *Equipment:* `{hardware_label}`\n"
-        f"🤖 *AI Engine:* `{'Gemini Cloud' if MODE == 'GEMINI' else WHISPER_MODEL}`\n"
+        f"🤖 *AI Engine:* `{'Gemini Cloud' if MODE == 'GEMINI' else config.WHISPER_MODEL}`\n"
         f"🧠 *AI Features:* `{ai_features}`\n"
         f"📢 *Status:* {ai_status}\n"
-        f"📂 *Order Limit:* `{BOT_FILESIZE_LIMIT}MB` per file"
+        f"📂 *Order Limit:* `{config.BOT_FILESIZE_LIMIT}MB` per file"
     )
     keyboard = [[InlineKeyboardButton("🔌 Close Restaurant", callback_data="shutdown_bot")]]
     return text, InlineKeyboardMarkup(keyboard)
@@ -411,7 +388,7 @@ async def update_startup_message():
     text, keyboard = startup_message()
     try:
         await application.bot.edit_message_text(
-            chat_id=TELEGRAM_CHAT_ID,
+            chat_id=config.TELEGRAM_CHAT_ID,
             message_id=STARTUP_MESSAGE_ID,
             text=text,
             parse_mode=ParseMode.MARKDOWN,
@@ -426,25 +403,25 @@ def run_transcription_process(job: Job) -> tuple[str, str]:
     log("WHISPER", f"[{job.job_id}] Transcribing {job.original_filename}...")
 
     transcribe_options = {
-        "beam_size": WHISPER_BEAM_SIZE,
-        "patience": WHISPER_PATIENCE,
-        "temperature": WHISPER_TEMPERATURE,
-        "repetition_penalty": WHISPER_REPETITION_PENALTY,
-        "no_repeat_ngram_size": WHISPER_NO_REPEAT_NGRAM_SIZE
+        "beam_size": config.WHISPER_BEAM_SIZE,
+        "patience": config.WHISPER_PATIENCE,
+        "temperature": config.WHISPER_TEMPERATURE,
+        "repetition_penalty": config.WHISPER_REPETITION_PENALTY,
+        "no_repeat_ngram_size": config.WHISPER_NO_REPEAT_NGRAM_SIZE
     }
 
     # Run transcription
     # VAD parameters from user research
     vad_parameters = dict(
-        threshold=VAD_THRESHOLD,
-        min_speech_duration_ms=VAD_MIN_SPEECH_DURATION_MS,
-        min_silence_duration_ms=VAD_MIN_SILENCE_DURATION_MS,
-        speech_pad_ms=VAD_SPEECH_PAD_MS
+        threshold=config.VAD_THRESHOLD,
+        min_speech_duration_ms=config.VAD_MIN_SPEECH_DURATION_MS,
+        min_silence_duration_ms=config.VAD_MIN_SILENCE_DURATION_MS,
+        speech_pad_ms=config.VAD_SPEECH_PAD_MS
     )
 
     segments_generator, info = model.transcribe(
         job.local_filepath,
-        vad_filter=VAD_FILTER,
+        vad_filter=config.VAD_FILTER,
         vad_parameters=vad_parameters,
         **transcribe_options
     )
@@ -472,7 +449,7 @@ async def _process_image_job(job: Job, _start_time: float):
     output_path = os.path.join(IMAGE_OUTPUT_FOLDER, f"{uuid.uuid4().hex}_{output_filename}")
 
     # Process
-    if ai_llm and ENABLE_AI_FEATURES:
+    if ai_llm and config.ENABLE_AI_FEATURES:
         # One session per job: OpenCode Go requires a stable x-opencode-session per conversation.
         result = await edit_image(job.local_filepath, output_path, ai_llm, session=str(uuid.uuid4()))
         if result["status"] == "success":
@@ -487,7 +464,7 @@ async def _process_image_job(job: Job, _start_time: float):
                 await job._original_message.reply_photo(photo=img_file, caption="⚠️ AI correction failed. Original sent.")
             log("ERROR", f"[{job.job_id}] Image edit failed: {result.get('error')}")
     else:
-        # AI features off (ENABLE_AI_FEATURES) or no AI provider — send original
+        # AI features off (config.ENABLE_AI_FEATURES) or no AI provider — send original
         with open(job.local_filepath, 'rb') as img_file:
             await job._original_message.reply_photo(photo=img_file, caption="⚠️ AI color correction is off. Original sent.")
 
@@ -531,7 +508,7 @@ async def _process_transcript_job(job: Job, start_time: float):
         await application.bot.send_document(job.chat_id, document=ts_file, filename=ts_filename, reply_to_message_id=job.message_id)
 
     # 2. AI Summary + Retouch — PARALLEL, send 1-by-1 as each succeeds
-    if ai_llm and ENABLE_AI_FEATURES:
+    if ai_llm and config.ENABLE_AI_FEATURES:
         session = str(uuid.uuid4())  # one x-opencode-session per job (OpenCode Go requires it)
 
         async def _generate_and_send(kind: str, prefix: str, generate):
@@ -626,7 +603,7 @@ async def get_status_text_and_keyboard():
         processing_line = ""
 
     ai_status = "✅ Kitchen Ready" if models_ready_event.is_set() else "⏳ Preparing Kitchen"
-    mode_label = "Gemini Cloud" if MODE == 'GEMINI' else f"Local {WHISPER_MODEL}"
+    mode_label = "Gemini Cloud" if MODE == 'GEMINI' else f"Local {config.WHISPER_MODEL}"
     hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
 
     text = (
@@ -659,7 +636,7 @@ async def queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 async def extend_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not ENABLE_IDLE_MONITOR:
+    if not config.ENABLE_IDLE_MONITOR:
         await update.effective_message.reply_text("Idle monitor disabled.")
         return
     msg = "✅ +5m extended" if idle_monitor.extend_timer(5) else "ℹ️ Bot active, no timer."
@@ -669,7 +646,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     # CallbackQueryHandler has no chat filter, and a forwarded bot message keeps its
     # buttons — without this check anyone could press shutdown/cancel from another chat.
-    if not query.message or query.message.chat_id != TELEGRAM_CHAT_ID:
+    if not query.message or query.message.chat_id != config.TELEGRAM_CHAT_ID:
         await query.answer("⛔ Not allowed here.", show_alert=True)
         log("SECURITY", f"Blocked callback '{query.data}' from user {query.from_user.id if query.from_user else '?'}")
         return
@@ -735,7 +712,7 @@ def main():
         connection_pool_size=8
     )
 
-    if not TELEGRAM_BOT_TOKEN:
+    if not config.TELEGRAM_BOT_TOKEN:
         sys.exit("❌ FATAL: No TELEGRAM_BOT_TOKEN found. Exiting.")
 
     async def post_init(application: Application):
@@ -746,12 +723,12 @@ def main():
         application.create_task(queue_processor())
         application.create_task(initialize_models_background())
 
-        if ENABLE_IDLE_MONITOR:
+        if config.ENABLE_IDLE_MONITOR:
             idle_monitor.start()
 
         text, keyboard = startup_message()
         msg = await application.bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
+            chat_id=config.TELEGRAM_CHAT_ID,
             text=text,
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=keyboard
@@ -760,7 +737,7 @@ def main():
         STARTUP_MESSAGE_ID = msg.message_id
 
     # Build Application with post_init hook
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).post_init(post_init).build()
+    application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).request(request).post_init(post_init).build()
 
     # Initialize components
     # CPU/GEMINI runtimes are cheap to keep and users there upload slowly, so idle
@@ -772,7 +749,7 @@ def main():
     files_handler = FilesHandler(job_manager, UPLOAD_FOLDER)
 
     # Filter for approved chat only
-    chat_filter = filters.Chat(chat_id=TELEGRAM_CHAT_ID)
+    chat_filter = filters.Chat(chat_id=config.TELEGRAM_CHAT_ID)
 
     # Handlers
     application.add_handler(CommandHandler(["start", "status"], status_command, filters=chat_filter))

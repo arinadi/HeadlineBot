@@ -4,7 +4,6 @@ import time
 from datetime import datetime
 
 from headlinebot import config
-from headlinebot.config import Config
 
 # --- Logging Utilities (Merged from log_utils.py) ---
 
@@ -36,7 +35,7 @@ def md_code(text: str) -> str:
 
 # Model chains are discovered at startup via model_manager.py
 # Fallback defaults if discovery fails
-GEMMA_MODEL = Config.GEMMA_MODEL
+GEMMA_MODEL = config.GEMMA_MODEL
 GEMINI_PRIMARY = "gemini-3-flash-preview"
 GEMINI_FALLBACK = "gemini-2.5-flash"
 

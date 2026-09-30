@@ -55,26 +55,21 @@ The provider is `LLM_PROVIDER`: `gemini` (default; Gemini/Gemma) or `openai_comp
 3.  **Process** (OpenCV): Gray World white balance (skipped for backlight), warmth/tint, brightness, contrast (tanh S-curve LUT), highlights/shadows, blacks/whites, saturation/vibrance, clarity/sharpness.
 4.  **Quality Guard**: if the result is blown out or flat, the original is sent instead.
 
-## Configuration (Environment Variables)
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `TELEGRAM_BOT_TOKEN` | Bot token | **Required** |
-| `TELEGRAM_CHAT_ID` | The only chat the bot serves | **Required** |
-| `GEMINI_API_KEY` | Google AI Studio key (GEMINI mode, AI features) | optional |
-| `ENABLE_AI_FEATURES` | Summary, retouch, photo correction | `false` |
-| `LLM_PROVIDER` | `gemini` or `openai_compat` | `gemini` |
-| `OPENAI_COMPAT_API_KEY` | Key for the OpenAI-compatible API | — |
-| `OPENAI_COMPAT_BASE_URL` | Its base URL | `https://opencode.ai/zen/go/v1` |
-| `OPENAI_COMPAT_MODELS` | Text models, tried in order | `deepseek-v4.1-flash,kimi-k3` |
-| `OPENAI_COMPAT_VISION_MODELS` | Image-capable models, tried in order | `deepseek-v4.1-flash,glm-5.3-flash` |
-| `MODEL_SIZE` | Whisper model size | `large-v2` |
-| `USE_FP16` | Whisper compute type: `auto`, `float16`, `int8`, `float32` | `auto` |
-| `BOT_FILESIZE_LIMIT` | Max MB per file | `20` |
-| `IDLE_SHUTDOWN_MINUTES` | Idle time before shutdown | `10` (`5` on beta) |
-| `GEMMA_MODEL` | Gemma model for photo analysis (gemini provider) | `models/gemma-4-26b-a4b-it` |
-| `JPEG_QUALITY` | Output quality for edited photos | `95` |
+## Configuration
+Secrets come from the environment (loaded from `.env`, see Architecture): `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (required), `OPENAI_COMPAT_API_KEY`, `GEMINI_API_KEY`, `HF_TOKEN`.
 
-See `headlinebot/config.py` for the Whisper decoding and VAD settings.
+Everything else is a plain constant in `headlinebot/config.py`; change it there, no environment variable reads it:
+| Constant | Default |
+| :--- | :--- |
+| `ENABLE_AI_FEATURES` | `True` |
+| `LLM_PROVIDER` | `"openai_compat"` (or `"gemini"`) |
+| `OPENAI_COMPAT_BASE_URL` / `_MODELS` / `_VISION_MODELS` | OpenCode Go; `deepseek-v4.1-flash, kimi-k3` / `deepseek-v4.1-flash, glm-5.3-flash` |
+| `WHISPER_MODEL`, `WHISPER_PRECISION`, `WHISPER_BEAM_SIZE`, ... | `large-v2`, `auto`, `10`, ... (Whisper decoding + VAD) |
+| `BOT_FILESIZE_LIMIT` | `20` MB |
+| `ENABLE_IDLE_MONITOR`, `IDLE_*_MINUTES` | on; `1` / `5` / `10` (shutdown `5` when `HEADLINEBOT_VERSION=beta`) |
+| `GEMMA_MODEL`, `JPEG_QUALITY` | `models/gemma-4-26b-a4b-it`, `95` |
+
+Internal variables set by the launch scripts (not for users): `HEADLINEBOT_VERSION`, `HEADLINEBOT_BRANCH`, `TRANSCRIPTION_MODE`, `INIT_START`, `HEADLINEBOT_ENV`.
 
 ## Development Rules
 -   **Language**: English for code comments and this file; the README is in Indonesian.

@@ -19,7 +19,8 @@ from telegram.constants import ParseMode
 from telegram.ext import Application, ContextTypes
 from werkzeug.utils import secure_filename
 
-from headlinebot.config import TELEGRAM_CHAT_ID, Config
+from headlinebot import config
+from headlinebot.config import TELEGRAM_CHAT_ID
 from headlinebot.utils import log, md_code
 
 # Image file extensions
@@ -99,7 +100,7 @@ class Job:
 class IdleMonitor:
     """Monitors bot activity and triggers alerts or shutdown when idle.
 
-    All three Config timeouts are multiplied by timeout_multiplier (main.py uses 5
+    All three config.IDLE_* timeouts are multiplied by timeout_multiplier (main.py uses 5
     in GEMINI/CPU mode). Timeline with multiplier 1 (Notify=1, Warn=5, Shutdown=10):
     - [0m]  Bot idle → shutdown_on = now + 10 minutes
     - [1m]  elapsed=1 → First Alert sent (with Extend button)
@@ -113,9 +114,9 @@ class IdleMonitor:
         self.app = app
         self.job_manager = job_manager
         self.shutdown_callback = shutdown_callback
-        self.first_alert_minutes = Config.IDLE_FIRST_ALERT_MINUTES * timeout_multiplier
-        self.final_warning_minutes = Config.IDLE_FINAL_WARNING_MINUTES * timeout_multiplier
-        self.shutdown_minutes = Config.IDLE_SHUTDOWN_MINUTES * timeout_multiplier
+        self.first_alert_minutes = config.IDLE_FIRST_ALERT_MINUTES * timeout_multiplier
+        self.final_warning_minutes = config.IDLE_FINAL_WARNING_MINUTES * timeout_multiplier
+        self.shutdown_minutes = config.IDLE_SHUTDOWN_MINUTES * timeout_multiplier
         self.shutdown_on: float | None = None  # Absolute timestamp for shutdown
         self.shutdown_imminent = False
         self.alerts_sent = {'first_alert': False, 'final_warning': False}
@@ -223,7 +224,7 @@ class IdleMonitor:
             await asyncio.sleep(60)
 
             # Skip if not enabled or shutdown already in progress
-            if self.shutdown_imminent or not Config.ENABLE_IDLE_MONITOR:
+            if self.shutdown_imminent or not config.ENABLE_IDLE_MONITOR:
                 continue
 
             # Wait for job_manager to be initialized
@@ -366,12 +367,12 @@ class FilesHandler:
         if isinstance(attachment, (list, tuple)):
             attachment = max(attachment, key=lambda p: p.file_size)
 
-        if attachment.file_size and attachment.file_size > (Config.BOT_FILESIZE_LIMIT * 1024 * 1024):
+        if attachment.file_size and attachment.file_size > (config.BOT_FILESIZE_LIMIT * 1024 * 1024):
             file_size_mb = attachment.file_size / (1024 * 1024)
             await message.reply_text(
                 f"❌ *File Too Large*\n\n"
                 f"The file `{md_code(getattr(attachment, 'file_name', 'file'))}` ({file_size_mb:.2f} MB) exceeds the bot's download limit of "
-                f"*{Config.BOT_FILESIZE_LIMIT} MB*. Please send a smaller file.",
+                f"*{config.BOT_FILESIZE_LIMIT} MB*. Please send a smaller file.",
                 parse_mode=ParseMode.MARKDOWN
             )
             return

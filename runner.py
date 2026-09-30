@@ -177,14 +177,6 @@ def set_version_env(version, branch):
     os.environ['HEADLINEBOT_VERSION'] = version
     os.environ['HEADLINEBOT_BRANCH'] = branch
 
-    # Per-version defaults (can be overridden by user env vars)
-    if version == "beta":
-        os.environ.setdefault('ENABLE_IDLE_MONITOR', 'True')
-        os.environ.setdefault('IDLE_SHUTDOWN_MINUTES', '5')
-    else:  # prod
-        os.environ.setdefault('ENABLE_IDLE_MONITOR', 'True')
-        os.environ.setdefault('IDLE_SHUTDOWN_MINUTES', '10')
-
 def main():
     start_time = time.time()
     if 'INIT_START' not in os.environ:

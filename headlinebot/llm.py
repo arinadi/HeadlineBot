@@ -11,7 +11,7 @@ Transcription does not go through here (Whisper, or the Gemini File API).
 import base64
 from urllib.parse import urlparse
 
-from headlinebot.config import Config
+from headlinebot import config
 from headlinebot.model_manager import try_model_chain
 from headlinebot.utils import get_model_chain, log
 
@@ -33,15 +33,15 @@ class GeminiLLM:
         if image_jpeg is None:
             chain = get_model_chain(task)
             contents = [system, text]
-            config = types.GenerateContentConfig(temperature=temperature)
+            gen_config = types.GenerateContentConfig(temperature=temperature)
         else:
             # Image input goes to the configured Gemma model; the discovered chains
             # are text chains and include models that can't see images.
-            chain = {"all": [Config.GEMMA_MODEL]}
+            chain = {"all": [config.GEMMA_MODEL]}
             contents = [types.Part.from_bytes(data=image_jpeg, mime_type="image/jpeg"), text]
-            config = types.GenerateContentConfig(system_instruction=system, temperature=temperature)
+            gen_config = types.GenerateContentConfig(system_instruction=system, temperature=temperature)
 
-        response = await try_model_chain(self.client, chain, contents, config=config, task_name=task)
+        response = await try_model_chain(self.client, chain, contents, config=gen_config, task_name=task)
         if response and response.text:
             return response.text
         raise RuntimeError(f"All models failed for {task}")

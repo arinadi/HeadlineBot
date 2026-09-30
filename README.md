@@ -260,30 +260,35 @@ python start.py
 
 ## ⚙️ Konfigurasi
 
-### Bot Settings
+### Pengaturan
 
-| Variable | Default | Keterangan |
+Selain secrets, semua pengaturan adalah konstanta biasa di [`headlinebot/config.py`](headlinebot/config.py) — ubah nilainya di file itu lalu push. Colab/VPS memakai kode terbaru setiap kali bot dinyalakan.
+
+| Konstanta | Default | Keterangan |
 | :--- | :--- | :--- |
-| `HEADLINEBOT_VERSION` | `prod` | Versi: `prod` (branch main) atau `beta` (branch beta) |
-| `ENABLE_AI_FEATURES` | `false` | Aktifkan ringkasan, retouch, dan koreksi foto (nama lama `ENABLE_GEMINI_FEATURES` masih berlaku) |
-| `LLM_PROVIDER` | `gemini` | Provider untuk ringkasan, retouch, dan foto: `gemini` atau `openai_compat` |
-| `MODEL_SIZE` | `large-v2` | Whisper model size |
-| `BOT_FILESIZE_LIMIT` | `20` | Max MB per file |
-| `ENABLE_IDLE_MONITOR` | `True` | Auto-shutdown saat idle (hemat Colab/Kaggle credits) |
+| `ENABLE_AI_FEATURES` | `True` | Ringkasan, retouch, dan koreksi foto |
+| `LLM_PROVIDER` | `"openai_compat"` | Provider AI: `"openai_compat"` atau `"gemini"` |
+| `WHISPER_MODEL` | `"large-v2"` | Ukuran model Whisper |
+| `BOT_FILESIZE_LIMIT` | `20` | Maks MB per file |
+| `ENABLE_IDLE_MONITOR` | `True` | Matikan runtime saat idle (hemat kuota Colab) |
+| `IDLE_SHUTDOWN_MINUTES` | `10` (`5` di beta) | Menit idle sebelum mati; 5x lebih lama di mode CPU |
+
+`HEADLINEBOT_VERSION` (`prod`/`beta`) diisi otomatis oleh `runner.py`/`colab-run.sh --version`.
 
 ### Provider AI
 
-Ringkasan, retouch, dan analisis foto memakai satu provider, dipilih lewat `LLM_PROVIDER`. Transkripsi tidak ikut: tetap Whisper (GPU) atau Gemini (CPU).
+Ringkasan, retouch, dan analisis foto memakai satu provider (`LLM_PROVIDER`). Transkripsi tidak ikut: tetap Whisper (GPU) atau Gemini (CPU).
 
-- `gemini` (default): Gemini/Gemma via `GEMINI_API_KEY`, model dipilih otomatis (lihat catatan di bawah).
-- `openai_compat`: API apa pun yang kompatibel dengan OpenAI Chat Completions, misalnya **OpenCode Go**. Model dicoba berurutan; jika satu gagal, lanjut ke berikutnya.
+- `"openai_compat"` (default): API apa pun yang kompatibel dengan OpenAI Chat Completions, misalnya **OpenCode Go**. Butuh `OPENAI_COMPAT_API_KEY` di `.env`. Model dicoba berurutan; jika satu gagal, lanjut ke berikutnya.
+- `"gemini"`: Gemini/Gemma via `GEMINI_API_KEY`, model dipilih otomatis (lihat catatan di bawah).
 
-| Variable | Default | Keterangan |
+| Konstanta | Default | Keterangan |
 | :--- | :--- | :--- |
-| `OPENAI_COMPAT_API_KEY` | — | API key (secret, di `.env`) |
-| `OPENAI_COMPAT_BASE_URL` | `https://opencode.ai/zen/go/v1` | Base URL API |
-| `OPENAI_COMPAT_MODELS` | `deepseek-v4.1-flash,kimi-k3` | Model teks (ringkasan, retouch), dipisah koma |
-| `OPENAI_COMPAT_VISION_MODELS` | `deepseek-v4.1-flash,glm-5.3-flash` | Model yang bisa membaca gambar (koreksi foto) |
+| `OPENAI_COMPAT_BASE_URL` | `"https://opencode.ai/zen/go/v1"` | Base URL API |
+| `OPENAI_COMPAT_MODELS` | `["deepseek-v4.1-flash", "kimi-k3"]` | Model teks (ringkasan, retouch) |
+| `OPENAI_COMPAT_VISION_MODELS` | `["deepseek-v4.1-flash", "glm-5.3-flash"]` | Model yang bisa membaca gambar (koreksi foto) |
+
+Tanpa `OPENAI_COMPAT_API_KEY`, fitur AI mati (admin diberi tahu); transkripsi tetap jalan.
 
 > **OpenCode Go:** request dikirim dengan User-Agent `HeadlineBot` dan header `x-opencode-session` (satu ID per job), keduanya diwajibkan OpenCode. Ketentuan Go menyebut layanan ini untuk trafik *coding agent* dan trafik dipantau — pemakaian untuk bot ini bisa ditandai. Cek model yang bisa baca gambar di [models.dev](https://models.dev).
 

@@ -11,7 +11,6 @@ import httpx2
 import openai
 import pytest
 
-from headlinebot.config import ai_features_enabled
 from headlinebot.llm import OpenAICompatLLM, build_llm
 from headlinebot.utils import retouch_transcript, summarize_text
 from tests.fakes import FakeOpenAIClient
@@ -139,13 +138,3 @@ def test_summary_uses_the_journalist_prompt_and_job_session():
 def test_retouch_falls_back_to_the_original_transcript_on_failure():
     llm = RecordingLLM(RuntimeError("All models failed for retouch"))
     assert asyncio.run(retouch_transcript("transkrip asli", llm)) == "transkrip asli"
-
-
-@pytest.mark.parametrize("env, expected", [
-    ({}, False),
-    ({"ENABLE_AI_FEATURES": "true"}, True),
-    ({"ENABLE_GEMINI_FEATURES": "true"}, True),
-    ({"ENABLE_AI_FEATURES": "false", "ENABLE_GEMINI_FEATURES": "true"}, False),
-])
-def test_ai_features_flag_accepts_the_old_name(env, expected):
-    assert ai_features_enabled(env) is expected

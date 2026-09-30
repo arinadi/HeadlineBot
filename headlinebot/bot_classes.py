@@ -2,12 +2,14 @@ import asyncio
 import os
 import re
 import shutil
+import stat
 import sys
 import time
 import uuid
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Any
 
 import ffmpeg
@@ -18,10 +20,37 @@ from telegram.ext import Application, ContextTypes
 from werkzeug.utils import secure_filename
 
 from headlinebot.config import TELEGRAM_CHAT_ID, Config
-from headlinebot.utils import log
+from headlinebot.utils import log, md_code
 
 # Image file extensions
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'}
+
+# Uncompressed cap per archive: a few MB of zip can expand to fill the VM disk.
+MAX_ZIP_TOTAL_BYTES = 2 * 1024 ** 3
+
+
+def extract_zip_safely(zip_path: str, dest_dir: str, max_total_bytes: int = MAX_ZIP_TOTAL_BYTES) -> list[str]:
+    """Extract an untrusted archive into dest_dir; return the extracted file paths.
+
+    Every member is checked before anything is written: paths that are absolute or
+    climb out with "..", symlinks, and archives over max_total_bytes raise ValueError.
+    OS junk (__MACOSX/, dotfiles) and directories are skipped, not extracted.
+    """
+    with zipfile.ZipFile(zip_path) as archive:
+        wanted, total = [], 0
+        for info in archive.infolist():
+            path = PurePosixPath(info.filename)
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError(f"Unsafe path in archive: {info.filename}")
+            if stat.S_ISLNK(info.external_attr >> 16):
+                raise ValueError(f"Symlink in archive: {info.filename}")
+            total += info.file_size
+            if total > max_total_bytes:
+                raise ValueError(f"Archive expands beyond {max_total_bytes // 1024 ** 2} MB")
+            if info.is_dir() or path.parts[0] == "__MACOSX" or path.name.startswith("."):
+                continue
+            wanted.append(info)
+        return [archive.extract(info, dest_dir) for info in wanted]
 
 
 @dataclass
@@ -70,7 +99,8 @@ class Job:
 class IdleMonitor:
     """Monitors bot activity and triggers alerts or shutdown when idle.
 
-    Timeline with Config (Notify=1, Warn=5, Shutdown=10):
+    All three Config timeouts are multiplied by timeout_multiplier (main.py uses 5
+    in GEMINI/CPU mode). Timeline with multiplier 1 (Notify=1, Warn=5, Shutdown=10):
     - [0m]  Bot idle → shutdown_on = now + 10 minutes
     - [1m]  elapsed=1 → First Alert sent (with Extend button)
     - [5m]  elapsed=5 → Final Warning sent
@@ -78,17 +108,21 @@ class IdleMonitor:
 
     extend_timer() adds minutes to shutdown_on, delaying shutdown.
     """
-    def __init__(self, app: Application, job_manager: "JobManager", shutdown_callback: Callable[[str], Any]):
+    def __init__(self, app: Application, job_manager: "JobManager", shutdown_callback: Callable[[str], Any],
+                 timeout_multiplier: int = 1):
         self.app = app
         self.job_manager = job_manager
         self.shutdown_callback = shutdown_callback
+        self.first_alert_minutes = Config.IDLE_FIRST_ALERT_MINUTES * timeout_multiplier
+        self.final_warning_minutes = Config.IDLE_FINAL_WARNING_MINUTES * timeout_multiplier
+        self.shutdown_minutes = Config.IDLE_SHUTDOWN_MINUTES * timeout_multiplier
         self.shutdown_on: float | None = None  # Absolute timestamp for shutdown
         self.shutdown_imminent = False
         self.alerts_sent = {'first_alert': False, 'final_warning': False}
         self.last_extend_time = 0
         self._task: asyncio.Task | None = None
-        log("INIT", f"IdleMonitor ready (alert={Config.IDLE_FIRST_ALERT_MINUTES}m, "
-                    f"warn={Config.IDLE_FINAL_WARNING_MINUTES}m, shutdown={Config.IDLE_SHUTDOWN_MINUTES}m)")
+        log("INIT", f"IdleMonitor ready (alert={self.first_alert_minutes}m, "
+                    f"warn={self.final_warning_minutes}m, shutdown={self.shutdown_minutes}m)")
 
     def start(self):
         if not self._task or self._task.done():
@@ -146,7 +180,7 @@ class IdleMonitor:
 
     async def _handle_shutdown(self):
         self.shutdown_imminent = True
-        shutdown_msg = f"🔴 Shutting down (idle {Config.IDLE_SHUTDOWN_MINUTES}m)"
+        shutdown_msg = f"🔴 Shutting down (idle {self.shutdown_minutes}m)"
         try:
             await self.app.bot.send_message(
                 chat_id=TELEGRAM_CHAT_ID,
@@ -162,6 +196,28 @@ class IdleMonitor:
             else:
                 self.shutdown_callback("Automatic Idle Shutdown")
 
+    async def check_idle(self):
+        """One monitor tick: start, advance, or reset the idle countdown."""
+        if not self.job_manager.is_idle():
+            self.reset()
+            return
+
+        # First time idle - set shutdown_on (absolute time)
+        if self.shutdown_on is None:
+            self.shutdown_on = time.time() + (self.shutdown_minutes * 60)
+            log("IDLE", f"Bot idle. Shutdown in {self.shutdown_minutes}m")
+
+        remaining_minutes = (self.shutdown_on - time.time()) / 60
+        elapsed_minutes = self.shutdown_minutes - remaining_minutes
+        log("IDLE", f"Elapsed: {elapsed_minutes:.1f}m, Remaining: {remaining_minutes:.1f}m")
+
+        if elapsed_minutes >= self.first_alert_minutes and not self.alerts_sent['first_alert']:
+            await self._handle_first_alert(remaining_minutes)
+        if elapsed_minutes >= self.final_warning_minutes and not self.alerts_sent['final_warning']:
+            await self._handle_final_warning(remaining_minutes)
+        if remaining_minutes <= 0:
+            await self._handle_shutdown()
+
     async def _monitor_loop(self):
         while True:
             await asyncio.sleep(60)
@@ -176,30 +232,7 @@ class IdleMonitor:
                 continue
 
             try:
-                if self.job_manager.is_idle():
-                    # First time idle - set shutdown_on (absolute time)
-                    if self.shutdown_on is None:
-                        self.shutdown_on = time.time() + (Config.IDLE_SHUTDOWN_MINUTES * 60)
-                        log("IDLE", f"Bot idle. Shutdown in {Config.IDLE_SHUTDOWN_MINUTES}m")
-
-                    # Calculate times
-                    remaining_minutes = (self.shutdown_on - time.time()) / 60
-                    elapsed_minutes = Config.IDLE_SHUTDOWN_MINUTES - remaining_minutes
-                    log("IDLE", f"Elapsed: {elapsed_minutes:.1f}m, Remaining: {remaining_minutes:.1f}m")
-
-                    # 1. FIRST ALERT
-                    if elapsed_minutes >= Config.IDLE_FIRST_ALERT_MINUTES and not self.alerts_sent['first_alert']:
-                        await self._handle_first_alert(remaining_minutes)
-
-                    # 2. FINAL WARNING
-                    if elapsed_minutes >= Config.IDLE_FINAL_WARNING_MINUTES and not self.alerts_sent['final_warning']:
-                        await self._handle_final_warning(remaining_minutes)
-
-                    # 3. SHUTDOWN
-                    if remaining_minutes <= 0:
-                        await self._handle_shutdown()
-                else:
-                    self.reset()
+                await self.check_idle()
             except Exception as e:
                 log("ERROR", f"IdleMonitor: {e}")
                 import traceback
@@ -223,7 +256,7 @@ class JobManager:
         await self.job_queue.put(job)
         queue_position = self.job_queue.qsize()
         model_status_note = " ⏳" if not self.models_ready_event.is_set() else ""
-        content = f"✅ Queued: `{job.original_filename}` (#{queue_position}){model_status_note}"
+        content = f"✅ Queued: `{md_code(job.original_filename)}` (#{queue_position}){model_status_note}"
 
         # Add simpler cancel button
         keyboard = [[InlineKeyboardButton("❌", callback_data=f"cancel_{job.job_id}")]]
@@ -249,6 +282,10 @@ class JobManager:
         job = self.job_registry.get(job_id)
         if not job:
             return False, "Unknown"
+        # Only queued jobs: the worker cannot abort a job mid-transcription, so
+        # reporting a processing job as cancelled would be false.
+        if job.status != "queued":
+            return False, job.original_filename
         job.status = "cancelled"
         log("JOB", f"[{job.job_id}] Cancelled")
         return True, job.original_filename
@@ -290,7 +327,7 @@ class FilesHandler:
             if mode == 'GEMINI' and duration > 1200:
                 await message.reply_text(
                     f"⚠️ *Split Duration Limit Exceeded*\n\n"
-                    f"File `{original_filename}` is {duration/60:.1f} minutes long. "
+                    f"File `{md_code(original_filename)}` is {duration/60:.1f} minutes long. "
                     f"In CPU/Gemini mode, the limit is 20 minutes per file. "
                     f"Please trim or split the file.",
                     parse_mode=ParseMode.MARKDOWN
@@ -333,7 +370,7 @@ class FilesHandler:
             file_size_mb = attachment.file_size / (1024 * 1024)
             await message.reply_text(
                 f"❌ *File Too Large*\n\n"
-                f"The file `{getattr(attachment, 'file_name', 'file')}` ({file_size_mb:.2f} MB) exceeds the bot's download limit of "
+                f"The file `{md_code(getattr(attachment, 'file_name', 'file'))}` ({file_size_mb:.2f} MB) exceeds the bot's download limit of "
                 f"*{Config.BOT_FILESIZE_LIMIT} MB*. Please send a smaller file.",
                 parse_mode=ParseMode.MARKDOWN
             )
@@ -380,10 +417,10 @@ class FilesHandler:
             if archive_data.get('timer'):
                 archive_data['timer'].cancel()
             archive_data['timer'] = loop.call_later(self.COMBINE_TIMEOUT_SECONDS, lambda: asyncio.create_task(self._process_multipart_archive(base_name)))
-            await message.reply_text(f"✅ Part {len(archive_data['files'])} for `{base_name}` received. Timer reset.", parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text(f"✅ Part {len(archive_data['files'])} for `{md_code(base_name)}` received. Timer reset.", parse_mode=ParseMode.MARKDOWN)
         else:
             status_message = await message.reply_text(
-                f"ℹ️ Received the first part of archive `{base_name}`.\n"
+                f"ℹ️ Received the first part of archive `{md_code(base_name)}`.\n"
                 f"Send the other parts. I will wait {self.COMBINE_TIMEOUT_SECONDS} seconds after the last file is received.",
                 parse_mode=ParseMode.MARKDOWN
             )
@@ -405,10 +442,10 @@ class FilesHandler:
         combined_zip_name = f"{base_name}.zip"
 
         if len(file_tuples) < 1:
-            await status_message.edit_text(f"❌ No files were available to combine for `{base_name}`.")
+            await status_message.edit_text(f"❌ No files were available to combine for `{md_code(base_name)}`.")
             return
 
-        await status_message.edit_text(f"⏳ Combining {len(file_tuples)} parts for `{base_name}`...", parse_mode=ParseMode.MARKDOWN)
+        await status_message.edit_text(f"⏳ Combining {len(file_tuples)} parts for `{md_code(base_name)}`...", parse_mode=ParseMode.MARKDOWN)
 
         file_tuples.sort(key=lambda t: int(self.multipart_pattern.search(t[1]).group(3)))
         sorted_file_paths = [t[0] for t in file_tuples]
@@ -420,11 +457,11 @@ class FilesHandler:
                         shutil.copyfileobj(infile, outfile)
 
             print(f"Successfully combined into: {combined_zip_path}")
-            await status_message.edit_text(f"✅ Combination complete! Now extracting `{combined_zip_name}`...", parse_mode=ParseMode.MARKDOWN)
+            await status_message.edit_text(f"✅ Combination complete! Now extracting `{md_code(combined_zip_name)}`...", parse_mode=ParseMode.MARKDOWN)
             await self._extract_and_queue_zip(combined_zip_path, combined_zip_name, archive_data['original_message'], status_message)
 
         except Exception as e:
-            await status_message.edit_text(f"❌ Failed to combine archive `{base_name}`: {e}", parse_mode=ParseMode.MARKDOWN)
+            await status_message.edit_text(f"❌ Failed to combine archive `{md_code(base_name)}`: `{md_code(e)}`", parse_mode=ParseMode.MARKDOWN)
             print(f"Error combining archive '{base_name}': {e}", file=sys.stderr)
         finally:
             for chunk_path in sorted_file_paths:
@@ -433,33 +470,29 @@ class FilesHandler:
 
     async def _extract_and_queue_zip(self, zip_path: str, zip_name: str, message: telegram.Message, status_message: telegram.Message = None):
         extract_dir = os.path.join(self.upload_folder, f"extract_{uuid.uuid4().hex[:8]}")
-        status_message = status_message or await message.reply_text(f"🗜️ Extracting `{zip_name}`...", parse_mode=ParseMode.MARKDOWN)
+        status_message = status_message or await message.reply_text(f"🗜️ Extracting `{md_code(zip_name)}`...", parse_mode=ParseMode.MARKDOWN)
         queued_files_count = 0
         try:
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                file_list = [f for f in zip_ref.namelist() if not f.startswith(('__MACOSX', '.')) and not f.endswith('/')]
-                if not file_list:
-                    await status_message.edit_text(f"⚠️ No valid files found inside `{zip_name}`.")
-                    return
+            extracted = await asyncio.to_thread(extract_zip_safely, zip_path, extract_dir)
+            if not extracted:
+                await status_message.edit_text(f"⚠️ No valid files found inside `{md_code(zip_name)}`.", parse_mode=ParseMode.MARKDOWN)
+                return
 
-                await status_message.edit_text(f"Found {len(file_list)} files in `{zip_name}`. Validating and queueing...", parse_mode=ParseMode.MARKDOWN)
-                await asyncio.to_thread(zip_ref.extractall, extract_dir)
+            await status_message.edit_text(f"Found {len(extracted)} files in `{md_code(zip_name)}`. Validating and queueing...", parse_mode=ParseMode.MARKDOWN)
+            for source_path in extracted:
+                filename = os.path.basename(source_path)
+                dest_path = os.path.join(self.upload_folder, f"{uuid.uuid4().hex}_{secure_filename(filename)}")
+                shutil.move(source_path, dest_path)
+                await self._validate_and_queue_file(dest_path, message, filename_override=filename)
+                queued_files_count += 1
 
-            for root, _, files in os.walk(extract_dir):
-                for filename in files:
-                    if filename.startswith('.'):
-                        continue
-                    source_path = os.path.join(root, filename)
-                    dest_path = os.path.join(self.upload_folder, f"{uuid.uuid4().hex}_{secure_filename(filename)}")
-                    shutil.move(source_path, dest_path)
-                    await self._validate_and_queue_file(dest_path, message, filename_override=filename)
-                    queued_files_count += 1
-
-            await status_message.edit_text(f"✅ Finished processing `{zip_name}`. Added {queued_files_count} files to the queue.", parse_mode=ParseMode.MARKDOWN)
+            await status_message.edit_text(f"✅ Finished processing `{md_code(zip_name)}`. Added {queued_files_count} files to the queue.", parse_mode=ParseMode.MARKDOWN)
+        except ValueError as e:
+            await status_message.edit_text(f"❌ Rejected `{md_code(zip_name)}`: `{md_code(e)}`", parse_mode=ParseMode.MARKDOWN)
         except zipfile.BadZipFile:
-            await status_message.edit_text(f"❌ Failed: `{zip_name}` is not a valid ZIP archive.", parse_mode=ParseMode.MARKDOWN)
+            await status_message.edit_text(f"❌ Failed: `{md_code(zip_name)}` is not a valid ZIP archive.", parse_mode=ParseMode.MARKDOWN)
         except Exception as e:
-            await status_message.edit_text(f"❌ Error while extracting `{zip_name}`: `{e}`", parse_mode=ParseMode.MARKDOWN)
+            await status_message.edit_text(f"❌ Error while extracting `{md_code(zip_name)}`: `{md_code(e)}`", parse_mode=ParseMode.MARKDOWN)
         finally:
             if extract_dir and os.path.exists(extract_dir):
                 shutil.rmtree(extract_dir)

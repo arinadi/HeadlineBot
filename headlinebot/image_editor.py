@@ -29,7 +29,8 @@ JPEG_QUALITY = int(os.getenv('JPEG_QUALITY', 95))
 # ─────────────────────────────────────────────────
 # 📦  LOAD PRESETS
 # ─────────────────────────────────────────────────
-_PRESETS_PATH = os.path.join(os.path.dirname(__file__), "docs", "presets.json")
+# presets.json lives at the repo root, one level above this package.
+_PRESETS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "presets.json")
 _PRESETS_DATA: dict[str, Any] = {}
 
 def _load_presets() -> dict[str, Any]:
@@ -50,40 +51,36 @@ def _get_preset(condition: str) -> dict[str, Any]:
         return presets[condition].get("params", {})
     return {}
 
+# Conditions where the "SKIN (any)" lock from the prompt applies on top of their own.
+_SKIN_CONDITIONS = {"SKIN_WARM", "SKIN_PALE", "PORTRAIT"}
+
 def _get_locks(condition: str) -> dict[str, Any]:
-    """Get parameter locks for a condition."""
+    """Get parameter locks for a condition (its own locks win over SKIN_ANY)."""
     locks = _PRESETS_DATA.get("parameter_locks", {})
-    return locks.get(condition, {})
+    merged = dict(locks.get("SKIN_ANY", {})) if condition in _SKIN_CONDITIONS else {}
+    merged.update(locks.get(condition, {}))
+    return merged
 
 def _apply_locks(params: dict[str, Any], locks: dict[str, Any]) -> dict[str, Any]:
-    """Apply parameter locks — clamp values to allowed ranges."""
-    if not locks:
-        return params
+    """Clamp params to locks: "c": [lo, hi] ranges, "d_min"/"s_max" bounds.
 
+    Locks use the prompt's one-letter keys but params already carry long names
+    ("shadows"), so each key goes through _KEY_MAP first.
+    """
     result = params.copy()
-
-    # Handle range locks (e.g., "c": [0.90, 1.05])
     for key, val in locks.items():
-        if key.endswith("_min") or key.endswith("_max"):
+        short, _, bound = key.partition("_")
+        name = _KEY_MAP.get(short)
+        if name not in result:
             continue
-        if isinstance(val, list) and len(val) == 2:
-            if key in result:
-                result[key] = np.clip(result[key], val[0], val[1])
-
-    # Handle min locks (e.g., "d_min": 30)
-    for key, val in locks.items():
-        if key.endswith("_min"):
-            param_key = key[:-4]
-            if param_key in result:
-                result[param_key] = max(result[param_key], val)
-
-    # Handle max locks (e.g., "s_max": 0.95)
-    for key, val in locks.items():
-        if key.endswith("_max"):
-            param_key = key[:-4]
-            if param_key in result:
-                result[param_key] = min(result[param_key], val)
-
+        if bound == "min":
+            result[name] = max(result[name], val)
+        elif bound == "max":
+            result[name] = min(result[name], val)
+        elif isinstance(val, list) and len(val) == 2:
+            # sorted(): a range written high-to-low (e.g. clarity [-8, -15]) is still a range.
+            low, high = sorted(val)
+            result[name] = min(max(result[name], low), high)
     return result
 
 

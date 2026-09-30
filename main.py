@@ -20,7 +20,15 @@ from headlinebot.bot_classes import FilesHandler, IdleMonitor, Job, JobManager
 from headlinebot.config import Config
 from headlinebot.image_editor import edit_image
 from headlinebot.model_manager import discover_models
-from headlinebot.utils import format_duration, get_runtime, log, retouch_transcript, set_model_chains, summarize_text
+from headlinebot.utils import (
+    format_duration,
+    get_runtime,
+    log,
+    md_code,
+    retouch_transcript,
+    set_model_chains,
+    summarize_text,
+)
 
 # --- Transcription Mode ---
 MODE = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')
@@ -32,6 +40,7 @@ try:
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
     from telegram.constants import ParseMode
     from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+    from telegram.helpers import escape_markdown
     from telegram.request import HTTPXRequest
     from werkzeug.utils import secure_filename
 except ImportError as e:
@@ -137,10 +146,9 @@ device = "cuda" if MODE == 'WHISPER' else "cpu"
 # Global State
 model = None
 gemini_client = None
+# Set by initialize_models_background once the transcription engine (Whisper or the
+# Gemini client) exists; the worker waits on it so no job runs against a None client.
 models_ready_event = asyncio.Event()
-
-if MODE == 'GEMINI':
-    models_ready_event.set() # Gemini doesn't need "loading" wait here
 
 
 
@@ -175,7 +183,7 @@ async def perform_shutdown(reason: str):
     # 1. Notify admin
     try:
         if application:
-            await send_telegram_notification(application, f"🔌 *Shutdown*\nReason: `{reason}`\nUptime: `{uptime_str}`")
+            await send_telegram_notification(application, f"🔌 *Shutdown*\nReason: `{md_code(reason)}`\nUptime: `{uptime_str}`")
             log("SHUTDOWN", "Notification sent")
     except Exception as e:
         log("ERROR", f"Final notification failed: {e}")
@@ -384,7 +392,7 @@ async def initialize_models_background():
         log("ERROR", f"Initialization failed: {e}")
         if MODE == 'WHISPER':
             log("INIT", "Whisper unavailable, falling back to Gemini Cloud...")
-            await send_telegram_notification(application, f"⚠️ *Whisper unavailable.* Falling back to Gemini Cloud.\nError: `{str(e)[:150]}`")
+            await send_telegram_notification(application, f"⚠️ *Whisper unavailable.* Falling back to Gemini Cloud.\nError: `{md_code(str(e)[:150])}`")
             MODE = 'GEMINI'
             os.environ['TRANSCRIPTION_MODE'] = 'GEMINI'
             device = "cpu"
@@ -401,7 +409,7 @@ async def initialize_models_background():
                 return
             except Exception as e2:
                 log("ERROR", f"Gemini fallback also failed: {e2}")
-                await send_telegram_notification(application, f"❌ *FATAL:* Both Whisper & Gemini failed:\n`{str(e2)}`")
+                await send_telegram_notification(application, f"❌ *FATAL:* Both Whisper & Gemini failed:\n`{md_code(str(e2))}`")
         await perform_shutdown("AI Model Loading Failed")
 
 
@@ -439,7 +447,7 @@ async def initialize_gradio_background():
     except Exception as e:
         log("ERROR", f"Gradio failed: {str(e)}")
         # Gradio failure is not fatal to the bot
-        await send_telegram_notification(application, f"⚠️ *Web UI Warning:* Failed to start Gradio:\n`{str(e)}`")
+        await send_telegram_notification(application, f"⚠️ *Web UI Warning:* Failed to start Gradio:\n`{md_code(str(e))}`")
 
 async def update_startup_message(gradio_url: str = None):
     """Updates the persistent startup message with current status."""
@@ -524,7 +532,7 @@ def run_transcription_process(job: Job) -> tuple[str, str]:
 
 async def _process_image_job(job: Job, _start_time: float):
     """Process an image color correction job."""
-    await application.bot.send_message(job.chat_id, f"🎨 Analyzing `{job.original_filename}`...", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
+    await application.bot.send_message(job.chat_id, f"🎨 Analyzing `{md_code(job.original_filename)}`...", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
 
     # Generate output path
     base_name = os.path.splitext(job.original_filename)[0]
@@ -547,12 +555,12 @@ async def _process_image_job(job: Job, _start_time: float):
         else:
             # Fallback: send original
             with open(job.local_filepath, 'rb') as img_file:
-                await application.bot.reply_photo(job._original_message, photo=img_file, caption="⚠️ AI correction failed. Original sent.")
+                await job._original_message.reply_photo(photo=img_file, caption="⚠️ AI correction failed. Original sent.")
             log("ERROR", f"[{job.job_id}] Image edit failed: {result.get('error')}")
     else:
-        # No Gemini — send original
+        # AI features off (ENABLE_GEMINI_FEATURES) or no Gemini client — send original
         with open(job.local_filepath, 'rb') as img_file:
-            await application.bot.reply_photo(job._original_message, photo=img_file, caption="⚠️ AI color correction unavailable (no GEMINI_API_KEY). Original sent.")
+            await job._original_message.reply_photo(photo=img_file, caption="⚠️ AI color correction is off. Original sent.")
 
     # Cleanup output file
     if os.path.exists(output_path):
@@ -562,7 +570,7 @@ async def _process_image_job(job: Job, _start_time: float):
 async def _process_transcript_job(job: Job, start_time: float):
     """Process a transcription job (transcript + summary + retouch)."""
     duration_str = format_duration(job.audio_duration)
-    await application.bot.send_message(job.chat_id, f"▶️ Processing `{job.original_filename}` ({duration_str})...", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
+    await application.bot.send_message(job.chat_id, f"▶️ Processing `{md_code(job.original_filename)}` ({duration_str})...", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
 
     # 1. Transcribe
     if MODE == 'GEMINI':
@@ -585,7 +593,7 @@ async def _process_transcript_job(job: Job, start_time: float):
     processing_duration_str = format_duration(time.time() - start_time)
     log("JOB", f"[{job.job_id}] Transcription done in {processing_duration_str}")
 
-    result_text = (f"✅ *Done!* `{job.original_filename}`\n"
+    result_text = (f"✅ *Done!* `{md_code(job.original_filename)}`\n"
                    f"⏱️ {duration_str} audio → {processing_duration_str} process\n"
                    f"🌐 Lang: {detected_language.upper()}\n"
                    f"🤖 Generating AI Summary...")
@@ -675,7 +683,7 @@ async def queue_processor():
             job.status = "failed"
             log("ERROR", f"[{job.job_id}] {e}")
             try:
-                await application.bot.send_message(job.chat_id, f"❌ *Failed:* `{job.original_filename}`\n`{e}`", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
+                await application.bot.send_message(job.chat_id, f"❌ *Failed:* `{md_code(job.original_filename)}`\n`{md_code(e)}`", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=job.message_id)
             except Exception:
                 log("ERROR", f"[{job.job_id}] Failed to send error notification")
         finally:
@@ -700,7 +708,7 @@ async def get_status_text_and_keyboard():
     """Builds the dynamic status message text and keyboard."""
     processing_job = job_manager.currently_processing
     if processing_job:
-        processing_line = f"👨‍🍳 *Currently Cooking:* `{processing_job.original_filename}`\n"
+        processing_line = f"👨‍🍳 *Currently Cooking:* `{md_code(processing_job.original_filename)}`\n"
     else:
         processing_line = ""
 
@@ -729,9 +737,9 @@ async def queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     queued_jobs = job_manager.get_queued_jobs()
     lines = ["📄 *Job Queue*\n"]
     if processing_job:
-        lines.append(f"\n▶️ *Currently Processing*\n`{processing_job.original_filename}`\n(By: {processing_job.author_display_name})")
+        lines.append(f"\n▶️ *Currently Processing*\n`{md_code(processing_job.original_filename)}`\n(By: {escape_markdown(processing_job.author_display_name)})")
     if queued_jobs:
-        queue_text = [f"*{i}.* `{job.original_filename}` (By: {job.author_display_name})" for i, job in enumerate(queued_jobs, 1)]
+        queue_text = [f"*{i}.* `{md_code(job.original_filename)}` (By: {escape_markdown(job.author_display_name)})" for i, job in enumerate(queued_jobs, 1)]
         lines.append(f"\n⏳ *In Queue ({len(queued_jobs)})*\n" + "\n".join(queue_text))
     elif not processing_job:
         lines.append("\nThe queue is empty.")
@@ -781,7 +789,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("cancel_"):
         job_id = data.split("_")[1]
         cancelled, job_name = await job_manager.cancel_job(job_id)
-        msg = f"✅ Job `{job_name}` was cancelled." if cancelled else "❌ Could not cancel job."
+        msg = f"✅ Job `{md_code(job_name)}` was cancelled." if cancelled else "❌ Could not cancel job."
         await query.edit_message_text(msg, reply_markup=None, parse_mode=ParseMode.MARKDOWN)
     elif data == "extend_idle":
         # Rate limit check (5 minutes = 300 seconds)
@@ -791,7 +799,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if idle_monitor.extend_timer(5):
             idle_monitor.last_extend_time = time.time()
-            new_text = f"✅ *Idle Extended*\nTimer added +5 minutes.\n_Action by {query.from_user.first_name}_"
+            new_text = f"✅ *Idle Extended*\nTimer added +5 minutes.\n_Action by {escape_markdown(query.from_user.first_name)}_"
             await query.edit_message_text(new_text, parse_mode=ParseMode.MARKDOWN)
         else:
             await query.edit_message_text("ℹ️ Bot is already active, no need to extend.", parse_mode=ParseMode.MARKDOWN)
@@ -830,17 +838,6 @@ def main():
             application.create_task(initialize_gradio_background())
 
         if ENABLE_IDLE_MONITOR:
-            # CPU/Gemini Mode: Multiply by 5 as requested
-            if MODE == 'GEMINI':
-                global IDLE_FIRST_ALERT_MINUTES, IDLE_FINAL_WARNING_MINUTES, IDLE_SHUTDOWN_MINUTES
-                IDLE_FIRST_ALERT_MINUTES *= 5
-                IDLE_FINAL_WARNING_MINUTES *= 5
-                IDLE_SHUTDOWN_MINUTES *= 5
-                # Note: We must also update Config directly if other components use it,
-                # but since we have aliases, we should update both or just aliases.
-                # However, IdleMonitor was already initialized with Config values.
-                # Let's check how IdleMonitor is initialized.
-                log("INIT", f"CPU Mode: Idle timers set to {IDLE_FIRST_ALERT_MINUTES}/{IDLE_FINAL_WARNING_MINUTES}/{IDLE_SHUTDOWN_MINUTES}m")
             idle_monitor.start()
 
         # Send startup notification in background (non-blocking)
@@ -868,7 +865,10 @@ def main():
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).post_init(post_init).build()
 
     # Initialize components
-    idle_monitor = IdleMonitor(application, None, perform_shutdown)
+    # CPU/GEMINI runtimes are cheap to keep and users there upload slowly, so idle
+    # timers run 5x longer than on a paid GPU.
+    idle_monitor = IdleMonitor(application, None, perform_shutdown,
+                               timeout_multiplier=5 if MODE == 'GEMINI' else 1)
     job_manager = JobManager(application, idle_monitor, models_ready_event)
     idle_monitor.job_manager = job_manager
     files_handler = FilesHandler(job_manager, UPLOAD_FOLDER)
@@ -922,7 +922,7 @@ if __name__ == "__main__":
         if 'application' in globals() and application:
             try:
                 loop = asyncio.new_event_loop()
-                loop.run_until_complete(send_telegram_notification(application, f"❌ *CRASH REPORT:*\nBot crashed with error: `{e}`"))
+                loop.run_until_complete(send_telegram_notification(application, f"❌ *CRASH REPORT:*\nBot crashed with error: `{md_code(e)}`"))
             except Exception:
                 pass
     finally:

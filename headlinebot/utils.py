@@ -39,6 +39,14 @@ def log(category: str, message: str):
     runtime = get_runtime()
     print(f"[{timestamp}] [+{runtime}] [{category}] {message}")
 
+def md_code(text: str) -> str:
+    """Make user text safe inside a Markdown `code span`.
+
+    Telegram's legacy Markdown has no escape inside code spans, so a stray backtick
+    (e.g. in a filename) ends the span early and the whole message is rejected.
+    """
+    return str(text).replace("`", "'")
+
 # --- AI & Formatting Utilities ---
 
 # Model chains are discovered at startup via model_manager.py
@@ -135,9 +143,10 @@ def build_retouch_prompt() -> str:
 async def summarize_text(transcript: str, gemini_client) -> str:
     """Generates a journalist-friendly summary of the transcript.
     Uses model chain: primary (gemma) → fallbacks.
+    Raises on failure, so an error message is never saved as the summary.
     """
     if not gemini_client:
-        return "Summarization disabled: Gemini API key not configured or client failed to load."
+        raise RuntimeError("Gemini client not initialized")
 
     today_date = datetime.now().strftime("%d %B %Y")
     prompt = build_journalist_summary_prompt(today_date)
@@ -156,7 +165,7 @@ async def summarize_text(transcript: str, gemini_client) -> str:
 
     if response and response.text:
         return response.text
-    return "❌ Error generating summary: all models failed"
+    raise RuntimeError("All models failed for summary")
 
 
 async def retouch_transcript(transcript: str, gemini_client) -> str:
@@ -223,10 +232,13 @@ def format_transcription_native(segments: list) -> str:
 async def transcribe_with_gemini(local_filepath: str, gemini_client) -> tuple[str, str]:
     """Transcribes audio using Gemini API (File API).
     Uses model chain: primary (flash) → fallbacks.
+    Raises on failure, so an error message is never saved as the transcript.
+    The uploaded audio is always deleted from Gemini afterwards (privacy, storage quota).
     """
     if not gemini_client:
-        return "Error: Gemini client not initialized.", "N/A"
+        raise RuntimeError("Gemini client not initialized")
 
+    audio_file = None
     try:
         log("GEMINI", f"Uploading {os.path.basename(local_filepath)}...")
         # 1. Upload (max 60s)
@@ -272,9 +284,12 @@ async def transcribe_with_gemini(local_filepath: str, gemini_client) -> tuple[st
 
         if response and response.text:
             return response.text, "ID"
+        raise RuntimeError("All models failed for transcription")
 
-        return "Error: All models failed for transcription.", "N/A"
-
-    except Exception as e:
-        log("ERROR", f"Gemini transcription failed: {e}")
-        return f"Error transcribing with Gemini: {e}", "N/A"
+    finally:
+        if audio_file is not None:
+            try:
+                await asyncio.to_thread(gemini_client.files.delete, name=audio_file.name)
+            except Exception as e:
+                # Cleanup only: the transcription result (or its error) matters more.
+                log("ERROR", f"Could not delete {audio_file.name} from Gemini: {e}")

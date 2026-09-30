@@ -6,6 +6,7 @@ upload must target /content/...; colab exec only reads code from -f FILE.
 """
 import inspect
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -112,10 +113,13 @@ needs_colab = pytest.mark.skipif(shutil.which("colab") is None and not os.enviro
     ("sessions", []),
 ])
 def test_real_cli_has_the_flags_the_scripts_use(command, flags):
-    result = subprocess.run(["colab", command, "--help"], capture_output=True, text=True, timeout=120)
+    # The CLI's rich help is colored on GitHub Actions; color codes split "--session".
+    env = {k: v for k, v in os.environ.items() if k != "FORCE_COLOR"} | {"NO_COLOR": "1", "TERM": "dumb"}
+    result = subprocess.run(["colab", command, "--help"], capture_output=True, text=True, timeout=120, env=env)
     assert result.returncode == 0, result.stderr
+    help_text = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
     for flag in flags:
-        assert flag in result.stdout, f"colab {command} lost {flag}"
+        assert flag in help_text, f"colab {command} lost {flag}"
 
 
 @needs_colab

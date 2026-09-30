@@ -1,14 +1,8 @@
-ffmpeg-python
-faster-whisper
+# requirements.txt — full GPU install: the CPU set plus local Whisper transcription.
+# torch is not listed: Colab/Kaggle GPU images ship it, and main.py only uses it
+# to check CUDA (without it the bot falls back to Gemini).
+-r requirements_cpu.txt
+# Upper bound: a faster-whisper major release may change transcribe()/WhisperModel.
+faster-whisper<2
 # av 19 removed av.open(metadata_errors=...), which faster-whisper 1.2.1 still passes; drop once faster-whisper supports av 19 (SYSTRAN/faster-whisper#1492)
 av<19
-google-genai
-httpx>=0.28.1
-more-itertools
-nest_asyncio
-opencv-python-headless
-Pillow
-python-telegram-bot
-requests
-tqdm
-werkzeug

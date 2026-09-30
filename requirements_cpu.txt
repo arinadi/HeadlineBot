@@ -1,11 +1,13 @@
 # requirements_cpu.txt — everything main.py imports at startup (GEMINI/CPU mode).
 # Whisper-only packages (faster-whisper, torch) live in requirements.txt.
+# Upper bounds on the SDKs whose major releases change APIs we call; bump them
+# deliberately after testing.
 ffmpeg-python
-google-genai
+google-genai<3
 nest_asyncio
 numpy
 opencv-python-headless
 Pillow
-python-telegram-bot
+python-telegram-bot<23
 requests
 werkzeug

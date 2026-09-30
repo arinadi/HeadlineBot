@@ -1,5 +1,7 @@
 ffmpeg-python
 faster-whisper
+# av 19 removed av.open(metadata_errors=...), which faster-whisper 1.2.1 still passes; drop once faster-whisper supports av 19 (SYSTRAN/faster-whisper#1492)
+av<19
 google-genai
 gradio>=4.0.0
 httpx>=0.28.1

@@ -1,6 +1,6 @@
 # 🎨 Image Editor Module - HeadlineBot
 # ------------------------------------------------------------------------------
-# AI-powered photo color correction using Gemma 4 model.
+# AI-powered photo color correction using the AI provider (headlinebot/llm.py).
 # Two-pass pipeline: classify condition → apply preset → fine-tune.
 # Based on code review fixes and preset research.
 # ------------------------------------------------------------------------------
@@ -24,7 +24,6 @@ from headlinebot.utils import log
 # ─────────────────────────────────────────────────
 # ⚙️  CONFIGURATION
 # ─────────────────────────────────────────────────
-GEMMA_MODEL = Config.GEMMA_MODEL
 JPEG_QUALITY = Config.JPEG_QUALITY
 
 # ─────────────────────────────────────────────────
@@ -154,38 +153,35 @@ DEFAULT_PARAMS = {
 # ─────────────────────────────────────────────────
 # 🤖  TWO-PASS IMAGE ANALYSIS
 # ─────────────────────────────────────────────────
-def analyze_image(image_path: str, gemini_client) -> dict[str, Any]:
-    """
-    Two-pass analysis:
-      Pass 1: Classify condition (one code)
-      Pass 2: Fine-tune preset for that condition
-    """
+def _thumbnail_jpeg(image_path: str) -> bytes:
+    """768px JPEG of the photo: enough for the model to judge color, cheap to send."""
     img = Image.open(image_path).convert("RGB")
     if max(img.size) > 768:
         img.thumbnail((768, 768), Image.LANCZOS)
-
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=82)
-    img_bytes = buf.getvalue()
+    return buf.getvalue()
+
+
+async def analyze_image(image_path: str, llm, session: str | None = None) -> dict[str, Any]:
+    """
+    Two-pass analysis with the AI provider (headlinebot/llm.py):
+      Pass 1: Classify condition (one code)
+      Pass 2: Fine-tune preset for that condition
+    Any failure yields neutral DEFAULT_PARAMS (no correction).
+    """
+    img_bytes = await asyncio.to_thread(_thumbnail_jpeg, image_path)
 
     try:
-        from google.genai import types
-
         # ── Pass 1: Classify ──────────────────────────────────────
         log("IMAGE", "Pass 1: Classifying condition...")
-        resp1 = gemini_client.models.generate_content(
-            model=GEMMA_MODEL,
-            contents=[
-                types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),
-                CLASSIFY_PROMPT,
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction="You are a photo condition classifier. Output ONLY the condition code.",
-                temperature=0.1,
-            ),
+        answer = await llm.generate(
+            task="photo",
+            system="You are a photo condition classifier. Output ONLY the condition code.",
+            text=CLASSIFY_PROMPT, image_jpeg=img_bytes, temperature=0.1, session=session,
         )
 
-        condition = resp1.text.strip().upper().replace('"', '').replace("'", "")
+        condition = answer.strip().upper().replace('"', '').replace("'", "")
         # Clean up — take first valid code
         valid_codes = _PRESETS_DATA.get("condition_codes", [])
         if condition not in valid_codes:
@@ -213,34 +209,16 @@ def analyze_image(image_path: str, gemini_client) -> dict[str, Any]:
         )
 
         log("IMAGE", "Pass 2: Fine-tuning parameters...")
-        resp2 = gemini_client.models.generate_content(
-            model=GEMMA_MODEL,
-            contents=[
-                types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),
-                prompt2,
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction="You are a professional photo colorist. Output ONLY the JSON.",
-                temperature=0.1,
-            ),
-        )
+        # Empty answers and Gemini safety blocks already raise inside llm.generate.
+        text = (await llm.generate(
+            task="photo",
+            system="You are a professional photo colorist. Output ONLY the JSON.",
+            text=prompt2, image_jpeg=img_bytes, temperature=0.1, session=session,
+        )).strip()
 
-        if resp2.text is None:
-            # Check candidates for safety block reason
-            if hasattr(resp2, 'candidates') and resp2.candidates:
-                reason = getattr(resp2.candidates[0], 'finish_reason', '')
-                raise ValueError(f"Empty response (finish_reason: {reason})")
-            raise ValueError("Empty response from Pass 2")
-
-        text = resp2.text.strip()
-
-        # Safety filter — keyword + candidates check
+        # Refusals written as text instead of a block
         if any(kw in text.lower() for kw in ("rejected", "high risk", "cannot analyze", "i'm sorry")):
             raise ValueError(f"Safety rejection: {text[:120]}")
-        if hasattr(resp2, 'candidates') and resp2.candidates:
-            reason = str(getattr(resp2.candidates[0], 'finish_reason', ''))
-            if 'SAFETY' in reason or 'BLOCK' in reason:
-                raise ValueError(f"Safety block: {reason}")
 
         # Extract JSON
         m = re.search(r"\{[^{}]*\}", text, re.DOTALL)
@@ -480,15 +458,16 @@ def apply_corrections(input_path: str, params: dict[str, Any], output_path: str)
 async def edit_image(
     input_path: str,
     output_path: str,
-    gemini_client,
+    llm,
+    session: str | None = None,
 ) -> dict[str, Any]:
     """
-    Main entry point: two-pass analyze with Gemma 4, apply corrections with OpenCV.
+    Main entry point: two-pass analyze with the AI provider, apply corrections with OpenCV.
     Returns dict with status and parameters used.
     """
     try:
         # 1. Two-pass analyze
-        params = await asyncio.to_thread(analyze_image, input_path, gemini_client)
+        params = await analyze_image(input_path, llm, session=session)
 
         # 2. Apply corrections
         await asyncio.to_thread(apply_corrections, input_path, params, output_path)

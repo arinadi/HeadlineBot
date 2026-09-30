@@ -6,6 +6,7 @@ ffmpeg-python
 google-genai<3
 nest_asyncio
 numpy
+openai<4
 opencv-python-headless
 Pillow
 python-telegram-bot<23

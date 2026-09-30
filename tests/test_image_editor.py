@@ -1,5 +1,6 @@
 """Photo analysis must use the base preset of the classified condition and
 enforce the non-negotiable parameter locks from presets.json."""
+import asyncio
 import json
 from pathlib import Path
 
@@ -7,7 +8,8 @@ import pytest
 from PIL import Image
 
 from headlinebot.image_editor import analyze_image
-from tests.fakes import FakeGeminiClient
+from headlinebot.llm import GeminiLLM, OpenAICompatLLM
+from tests.fakes import FakeGeminiClient, FakeOpenAIClient
 
 PRESETS = json.loads((Path(__file__).parent.parent / "presets.json").read_text())
 
@@ -21,7 +23,7 @@ def photo(tmp_path):
 
 def analyze(photo, condition, correction):
     client = FakeGeminiClient([condition, correction])
-    return analyze_image(photo, client), client
+    return asyncio.run(analyze_image(photo, GeminiLLM(client))), client
 
 
 def test_known_condition_code_is_kept(photo):
@@ -55,3 +57,12 @@ def test_skin_conditions_cap_vibrance_and_saturation(photo, condition):
     result, _ = analyze(photo, condition, '{"v": 2.0, "s": 2.0}')
     assert result["vibrance"] <= 1.3
     assert result["saturation"] <= 1.2
+
+
+def test_openai_compatible_provider_uses_vision_models_and_locks(photo):
+    client = FakeOpenAIClient(["BACKLIGHT", '{"d": 0, "h": 0}'])
+    llm = OpenAICompatLLM(client, models=["text-model"], vision_models=["vision-model"])
+    result = asyncio.run(analyze_image(photo, llm))
+    assert [call["model"] for call in client.chat.completions.calls] == ["vision-model", "vision-model"]
+    assert result["condition"] == "BACKLIGHT"
+    assert result["shadows"] >= 30

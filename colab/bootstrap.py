@@ -87,7 +87,7 @@ def main():
         raise SystemExit(f"missing secrets: {missing} "
                          "(check Infisical project/env)")
     if not os.environ.get("GEMINI_API_KEY"):
-        print("GEMINI_API_KEY not set - AI features disabled", flush=True)
+        print("GEMINI_API_KEY not set - CPU transcription and LLM_PROVIDER=gemini unavailable", flush=True)
 
     # 5. Dependencies.
     req = "requirements_cpu.txt" if deps == "cpu" else "requirements.txt"

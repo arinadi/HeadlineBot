@@ -50,3 +50,25 @@ class FakeBot:
 class FakeApp:
     def __init__(self):
         self.bot = FakeBot()
+
+
+class FakeCompletions:
+    def __init__(self, replies):
+        # Each reply is a str (returned as message content) or an Exception (raised).
+        self._replies = list(replies)
+        self.calls = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        reply = self._replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        message = SimpleNamespace(content=reply)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
+class FakeOpenAIClient:
+    """The subset of openai.AsyncOpenAI the bot uses: chat.completions.create."""
+
+    def __init__(self, replies=()):
+        self.chat = SimpleNamespace(completions=FakeCompletions(replies))

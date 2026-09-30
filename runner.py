@@ -118,7 +118,7 @@ def verify_secrets(platform):
     optional = ['GEMINI_API_KEY']
     for key in optional:
         if not os.environ.get(key):
-            print(f"  ⚠️ {key} not set — AI features (summary/retouch/photo) will be disabled.", flush=True)
+            print(f"  ⚠️ {key} not set — CPU-mode transcription and LLM_PROVIDER=gemini are unavailable.", flush=True)
 
     return True
 

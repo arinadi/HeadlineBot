@@ -22,6 +22,7 @@ from headlinebot import config
 from headlinebot.bot_classes import FilesHandler, IdleMonitor, Job, JobManager
 from headlinebot.config import Config
 from headlinebot.image_editor import edit_image
+from headlinebot.llm import build_llm
 from headlinebot.model_manager import discover_models
 from headlinebot.utils import (
     format_duration,
@@ -58,7 +59,7 @@ VAD_MIN_SILENCE_DURATION_MS = Config.VAD_MIN_SILENCE_DURATION_MS
 VAD_SPEECH_PAD_MS = Config.VAD_SPEECH_PAD_MS
 BOT_FILESIZE_LIMIT = Config.BOT_FILESIZE_LIMIT
 ENABLE_IDLE_MONITOR = Config.ENABLE_IDLE_MONITOR
-ENABLE_GEMINI_FEATURES = Config.ENABLE_GEMINI_FEATURES
+ENABLE_AI_FEATURES = Config.ENABLE_AI_FEATURES
 
 # Detect Runtime Environment (Kaggle > Colab > Local)
 IS_COLAB = False
@@ -84,7 +85,7 @@ if not all([TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
     print("❌ ERROR: Core secrets (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) are missing.")
 
 if not GEMINI_API_KEY:
-    print("⚠️ WARNING: GEMINI_API_KEY not set. Summarization features will be disabled.")
+    print("⚠️ WARNING: GEMINI_API_KEY not set. CPU-mode transcription and LLM_PROVIDER=gemini are unavailable.")
 
 # Constants
 TRANSCRIPT_FILENAME_PREFIX = "TS"
@@ -116,6 +117,8 @@ device = "cuda" if MODE == 'WHISPER' else "cpu"
 # Global State
 model = None
 gemini_client = None
+# Provider for summary, retouch and photo (LLM_PROVIDER); None = those features unavailable.
+ai_llm = None
 # Set by initialize_models_background once the transcription engine (Whisper or the
 # Gemini client) exists; the worker waits on it so no job runs against a None client.
 models_ready_event = asyncio.Event()
@@ -190,6 +193,23 @@ async def init_gemini():
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
     set_model_chains(await discover_models(gemini_client))
     log("INIT", "Gemini ready")
+
+
+async def init_ai_llm():
+    """Set up the AI provider. A misconfigured provider only disables summary/retouch/
+    photo (the admin is told why); transcription keeps working."""
+    global ai_llm
+    try:
+        ai_llm = build_llm(Config.LLM_PROVIDER, gemini_client, Config.OPENAI_COMPAT_BASE_URL,
+                           config.OPENAI_COMPAT_API_KEY, Config.OPENAI_COMPAT_MODELS,
+                           Config.OPENAI_COMPAT_VISION_MODELS)
+    except ValueError as e:
+        ai_llm = None
+        log("ERROR", f"AI provider unavailable: {e}")
+        if ENABLE_AI_FEATURES:
+            await send_telegram_notification(application, f"⚠️ *AI features off:* `{md_code(e)}`")
+        return
+    log("INIT", f"AI provider: {ai_llm.name if ai_llm else 'none'}")
 
 
 async def initialize_models_background():
@@ -334,6 +354,7 @@ async def initialize_models_background():
         if SHUTDOWN_IN_PROGRESS: return
 
         await init_gemini()
+        await init_ai_llm()
 
         if SHUTDOWN_IN_PROGRESS: return
 
@@ -354,6 +375,7 @@ async def initialize_models_background():
             device = "cpu"
             try:
                 await init_gemini()
+                await init_ai_llm()
                 models_ready_event.set()
                 await update_startup_message()
                 await send_telegram_notification(application, "🛎️ *Kitchen is now open!* Running on Gemini Cloud.")
@@ -368,11 +390,13 @@ def startup_message() -> tuple[str, InlineKeyboardMarkup]:
     """Text and keyboard of the pinned-style startup message, for its current state."""
     ai_status = "✅ Kitchen Open" if models_ready_event.is_set() else "⏳ Preparing..."
     hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
+    ai_features = Config.LLM_PROVIDER if ENABLE_AI_FEATURES else "off"
     text = (
         f"📰 *Welcome to HeadlineBot*\n"
         f"Your AI assistant for front-line reporting. Send your files anytime.\n\n"
         f"🛠️ *Equipment:* `{hardware_label}`\n"
         f"🤖 *AI Engine:* `{'Gemini Cloud' if MODE == 'GEMINI' else WHISPER_MODEL}`\n"
+        f"🧠 *AI Features:* `{ai_features}`\n"
         f"📢 *Status:* {ai_status}\n"
         f"📂 *Order Limit:* `{BOT_FILESIZE_LIMIT}MB` per file"
     )
@@ -448,8 +472,9 @@ async def _process_image_job(job: Job, _start_time: float):
     output_path = os.path.join(IMAGE_OUTPUT_FOLDER, f"{uuid.uuid4().hex}_{output_filename}")
 
     # Process
-    if gemini_client and ENABLE_GEMINI_FEATURES:
-        result = await edit_image(job.local_filepath, output_path, gemini_client)
+    if ai_llm and ENABLE_AI_FEATURES:
+        # One session per job: OpenCode Go requires a stable x-opencode-session per conversation.
+        result = await edit_image(job.local_filepath, output_path, ai_llm, session=str(uuid.uuid4()))
         if result["status"] == "success":
             params = result["params"]
             diagnosis = params.get("description", "Color corrected")
@@ -462,7 +487,7 @@ async def _process_image_job(job: Job, _start_time: float):
                 await job._original_message.reply_photo(photo=img_file, caption="⚠️ AI correction failed. Original sent.")
             log("ERROR", f"[{job.job_id}] Image edit failed: {result.get('error')}")
     else:
-        # AI features off (ENABLE_GEMINI_FEATURES) or no Gemini client — send original
+        # AI features off (ENABLE_AI_FEATURES) or no AI provider — send original
         with open(job.local_filepath, 'rb') as img_file:
             await job._original_message.reply_photo(photo=img_file, caption="⚠️ AI color correction is off. Original sent.")
 
@@ -506,10 +531,12 @@ async def _process_transcript_job(job: Job, start_time: float):
         await application.bot.send_document(job.chat_id, document=ts_file, filename=ts_filename, reply_to_message_id=job.message_id)
 
     # 2. AI Summary + Retouch — PARALLEL, send 1-by-1 as each succeeds
-    if gemini_client and ENABLE_GEMINI_FEATURES:
+    if ai_llm and ENABLE_AI_FEATURES:
+        session = str(uuid.uuid4())  # one x-opencode-session per job (OpenCode Go requires it)
+
         async def _generate_and_send(kind: str, prefix: str, generate):
             log("JOB", f"[{job.job_id}] Generating {kind}...")
-            text = await generate(transcript_text, gemini_client)
+            text = await generate(transcript_text, ai_llm, session=session)
             if not text:
                 return
             filename = f"{prefix}_({duration_str.replace(' ', '')})_{safe_name}.txt"

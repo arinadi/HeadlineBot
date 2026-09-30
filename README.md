@@ -234,7 +234,7 @@ Kirim audio atau video. HeadlineBot mengubahnya menjadi teks lengkap tanpa times
 - **CPU Mode**: Gemini Cloud — otomatis pilih model terbaru, maks 20 menit per file (juga dipakai otomatis jika Whisper gagal dimuat)
 - **Format**: MP3, MP4, WAV, M4A, WEBM, OGG, FLAC, MKV
 
-> Fitur AI di bawah (ringkasan, koreksi foto, retouch) aktif hanya jika `ENABLE_GEMINI_FEATURES=true` dan `GEMINI_API_KEY` diset. Default: mati — foto dikirim balik apa adanya.
+> Fitur AI di bawah (ringkasan, koreksi foto, retouch) aktif hanya jika `ENABLE_AI_FEATURES=true` dan provider AI-nya siap (lihat [Provider AI](#provider-ai)). Default: mati — foto dikirim balik apa adanya.
 
 ### 📝 Ringkasan Jurnalistik
 Transkrip 30 menit → ringkasan 1 menit yang siap kirim ke editor. Menggunakan Gemma 4 (atau flash terbaru) via Smart Model Manager:
@@ -350,10 +350,27 @@ Semua 4 variable ini disimpan di **Kaggle/Colab Secrets** (sekali saja):
 | Variable | Default | Keterangan |
 | :--- | :--- | :--- |
 | `HEADLINEBOT_VERSION` | `prod` | Versi: `prod` (branch main) atau `beta` (branch beta) |
-| `ENABLE_GEMINI_FEATURES` | `false` | Aktifkan ringkasan, retouch, dan koreksi foto (butuh `GEMINI_API_KEY`) |
+| `ENABLE_AI_FEATURES` | `false` | Aktifkan ringkasan, retouch, dan koreksi foto (nama lama `ENABLE_GEMINI_FEATURES` masih berlaku) |
+| `LLM_PROVIDER` | `gemini` | Provider untuk ringkasan, retouch, dan foto: `gemini` atau `openai_compat` |
 | `MODEL_SIZE` | `large-v2` | Whisper model size |
 | `BOT_FILESIZE_LIMIT` | `20` | Max MB per file |
 | `ENABLE_IDLE_MONITOR` | `True` | Auto-shutdown saat idle (hemat Colab/Kaggle credits) |
+
+### Provider AI
+
+Ringkasan, retouch, dan analisis foto memakai satu provider, dipilih lewat `LLM_PROVIDER`. Transkripsi tidak ikut: tetap Whisper (GPU) atau Gemini (CPU).
+
+- `gemini` (default): Gemini/Gemma via `GEMINI_API_KEY`, model dipilih otomatis (lihat catatan di bawah).
+- `openai_compat`: API apa pun yang kompatibel dengan OpenAI Chat Completions, misalnya **OpenCode Go**. Model dicoba berurutan; jika satu gagal, lanjut ke berikutnya.
+
+| Variable | Default | Keterangan |
+| :--- | :--- | :--- |
+| `OPENAI_COMPAT_API_KEY` | — | API key (simpan di Infisical) |
+| `OPENAI_COMPAT_BASE_URL` | `https://opencode.ai/zen/go/v1` | Base URL API |
+| `OPENAI_COMPAT_MODELS` | `deepseek-v4.1-flash,kimi-k3` | Model teks (ringkasan, retouch), dipisah koma |
+| `OPENAI_COMPAT_VISION_MODELS` | `deepseek-v4.1-flash,glm-5.3-flash` | Model yang bisa membaca gambar (koreksi foto) |
+
+> **OpenCode Go:** request dikirim dengan User-Agent `HeadlineBot` dan header `x-opencode-session` (satu ID per job), keduanya diwajibkan OpenCode. Ketentuan Go menyebut layanan ini untuk trafik *coding agent* dan trafik dipantau — pemakaian untuk bot ini bisa ditandai. Cek model yang bisa baca gambar di [models.dev](https://models.dev).
 
 > **Catatan Model:** HeadlineBot menggunakan Smart Model Manager yang otomatis mendeteksi model yang tersedia di akun Gemini-mu, memfilter flash & gemma, dan mengurutkan berdasarkan versi terbaru. Tidak perlu setting manual — model primary dan fallback diatur otomatis!
 

@@ -5,6 +5,7 @@ import asyncio
 
 import pytest
 
+from headlinebot.llm import GeminiLLM
 from headlinebot.utils import summarize_text, transcribe_with_gemini
 from tests.fakes import FakeGeminiClient
 
@@ -43,4 +44,4 @@ def test_uploaded_audio_is_deleted_when_transcription_fails():
 def test_summary_raises_when_every_model_fails():
     client = FakeGeminiClient([RuntimeError("bad request")] * 5)
     with pytest.raises(RuntimeError, match="All models failed"):
-        asyncio.run(summarize_text("transkrip", client))
+        asyncio.run(summarize_text("transkrip", GeminiLLM(client)))

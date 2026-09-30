@@ -141,59 +141,25 @@ def build_retouch_prompt() -> str:
     )
 
 
-async def summarize_text(transcript: str, gemini_client) -> str:
-    """Generates a journalist-friendly summary of the transcript.
-    Uses model chain: primary (gemma) → fallbacks.
-    Raises on failure, so an error message is never saved as the summary.
+async def summarize_text(transcript: str, llm, session: str | None = None) -> str:
+    """Generates a journalist-friendly summary of the transcript with the AI provider
+    (headlinebot/llm.py). Raises on failure, so an error message is never saved as the summary.
     """
-    if not gemini_client:
-        raise RuntimeError("Gemini client not initialized")
-
     today_date = datetime.now().strftime("%d %B %Y")
     prompt = build_journalist_summary_prompt(today_date)
-
-    from google.genai import types
-
-    from headlinebot.model_manager import try_model_chain
-
-    chain = get_model_chain("summary")
-    config = types.GenerateContentConfig(temperature=0.3)
-
-    response = await try_model_chain(
-        gemini_client, chain, [prompt, transcript],
-        config=config, task_name="summary"
-    )
-
-    if response and response.text:
-        return response.text
-    raise RuntimeError("All models failed for summary")
+    return await llm.generate(task="summary", system=prompt, text=transcript, temperature=0.3, session=session)
 
 
-async def retouch_transcript(transcript: str, gemini_client) -> str:
+async def retouch_transcript(transcript: str, llm, session: str | None = None) -> str:
     """Retouch/clean up transcript: fix typos, punctuation, add paragraph breaks.
-    Uses model chain: primary (gemma) → fallbacks.
+    Returns the original transcript if every model fails (a retouch is optional polish).
     """
-    if not gemini_client:
-        return transcript  # Return original if no client
-
-    prompt = build_retouch_prompt()
-    contents = [prompt, transcript]
-
-    from google.genai import types
-
-    from headlinebot.model_manager import try_model_chain
-
-    chain = get_model_chain("retouch")
-    config = types.GenerateContentConfig(temperature=0.3)
-
-    response = await try_model_chain(
-        gemini_client, chain, contents,
-        config=config, task_name="retouch"
-    )
-
-    if response and response.text:
-        return response.text
-    return transcript  # Return original on error
+    try:
+        return await llm.generate(task="retouch", system=build_retouch_prompt(), text=transcript,
+                                  temperature=0.3, session=session)
+    except RuntimeError as e:
+        log("ERROR", f"Retouch failed, keeping original transcript: {e}")
+        return transcript
 
 
 def format_duration(seconds: float) -> str:

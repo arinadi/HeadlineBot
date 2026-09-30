@@ -10,9 +10,20 @@ INIT_START = float(os.getenv('INIT_START', time.time()))
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')  # Token from BotFather
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')      # Admin Chat ID (integer)
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')          # Google AI Studio Key
+OPENAI_COMPAT_API_KEY = os.environ.get('OPENAI_COMPAT_API_KEY')  # Key for LLM_PROVIDER=openai_compat
 
 if TELEGRAM_CHAT_ID:
     TELEGRAM_CHAT_ID = int(TELEGRAM_CHAT_ID)
+
+
+def ai_features_enabled(env=os.environ) -> bool:
+    """ENABLE_AI_FEATURES; its old name ENABLE_GEMINI_FEATURES counts when the new one is unset."""
+    value = env.get('ENABLE_AI_FEATURES', env.get('ENABLE_GEMINI_FEATURES', 'false'))
+    return value.lower() == 'true'
+
+
+def _model_list(name: str, default: str) -> list[str]:
+    return [m.strip() for m in os.getenv(name, default).split(',') if m.strip()]
 
 # --- Bot Configuration ---
 class Config:
@@ -74,8 +85,18 @@ class Config:
     # Shutdown: Minutes of idleness before killing runtime.
     IDLE_SHUTDOWN_MINUTES = int(os.getenv('IDLE_SHUTDOWN_MINUTES', 10))
 
-    # --- Gemini Features (summary, retouch, photo correction; off by default) ---
-    ENABLE_GEMINI_FEATURES = os.getenv('ENABLE_GEMINI_FEATURES', 'false').lower() == 'true'
+    # --- AI Features (summary, retouch, photo correction; off by default) ---
+    ENABLE_AI_FEATURES = ai_features_enabled()
+
+    # Provider for those features: 'gemini' or 'openai_compat' (see headlinebot/llm.py).
+    # Transcription is separate: Whisper on GPU, Gemini on CPU.
+    LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'gemini').strip().lower()
+
+    # openai_compat settings. Defaults target OpenCode Go; models are tried in order.
+    # Vision models must accept image input (photo correction).
+    OPENAI_COMPAT_BASE_URL = os.getenv('OPENAI_COMPAT_BASE_URL', 'https://opencode.ai/zen/go/v1')
+    OPENAI_COMPAT_MODELS = _model_list('OPENAI_COMPAT_MODELS', 'deepseek-v4.1-flash,kimi-k3')
+    OPENAI_COMPAT_VISION_MODELS = _model_list('OPENAI_COMPAT_VISION_MODELS', 'deepseek-v4.1-flash,glm-5.3-flash')
 
     # --- Image Editing Settings ---
     # Model: Gemma model for image analysis

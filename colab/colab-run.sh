@@ -3,10 +3,8 @@
 # the local checkout is tarred and uploaded, so the VM never touches git.
 #
 # Secrets: userdata.get() does NOT work in CLI sessions, so secrets travel
-# as a local-only .env file (uploaded to the VM, never committed — .env is
-# gitignored). Fill .env from .env.example (INFISICAL_* only); real bot
-# secrets are fetched from Infisical Cloud at runtime. NEVER paste secret
-# values into chat.
+# as the local .env file (uploaded to the VM, never committed — .env is
+# gitignored). Fill .env from .env.example. NEVER paste secret values into chat.
 #
 #   ./colab/colab-run.sh up [--session NAME] [--gpu T4] [--version prod|beta] [--cpu-deps]
 #   ./colab/colab-run.sh logs [--session NAME] [--lines 50]
@@ -24,15 +22,13 @@ GPU=""
 LINES=50
 
 usage() {
-    sed -n '2,13p' "$0"
+    sed -n '2,11p' "$0"
 }
 
 need_env() {
     if [ ! -f "${REPO_DIR}/.env" ]; then
         echo "missing ${REPO_DIR}/.env" >&2
-        echo "copy .env.example to .env and fill:" >&2
-        echo "  INFISICAL_CLIENT_ID, INFISICAL_CLIENT_SECRET," >&2
-        echo "  INFISICAL_PROJECT_ID, INFISICAL_ENV" >&2
+        echo "copy .env.example to .env and fill it in" >&2
         echo "(.env is gitignored; values stay local)" >&2
         exit 1
     fi

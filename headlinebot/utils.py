@@ -6,22 +6,6 @@ from datetime import datetime
 from headlinebot import config
 from headlinebot.config import Config
 
-# --- Platform Detection ---
-
-def detect_platform():
-    """Detect runtime: Kaggle, Colab, or Local."""
-    try:
-        from kaggle_secrets import UserSecretsClient  # noqa: F401
-        return "kaggle"
-    except ImportError:
-        pass
-    try:
-        from google.colab import userdata  # noqa: F401
-        return "colab"
-    except ImportError:
-        pass
-    return "local"
-
 # --- Logging Utilities (Merged from log_utils.py) ---
 
 def get_runtime() -> str:

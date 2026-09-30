@@ -1,3 +1,5 @@
+import base64
+import binascii
 import os
 import subprocess
 import sys
@@ -34,29 +36,58 @@ VERSION_BRANCH_MAP = {
 }
 DEFAULT_VERSION = "prod"
 
+def parse_env(text: str) -> dict[str, str]:
+    """Parse .env text into {KEY: VALUE}.
+
+    Handles what a hand-edited file on Windows or Linux contains: a UTF-8 BOM,
+    CRLF, blank lines, '#' comments, `export ` prefixes and quoted values. Only the
+    first '=' splits, since API keys and base64 values often contain '='.
+    Shared by colab/bootstrap.py so both launch paths read .env the same way.
+    """
+    env = {}
+    for line in text.lstrip("\ufeff").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if key:
+            env[key] = value
+    return env
+
+
+def load_env_bundle(encoded: str, environ=None) -> list[str]:
+    """Load a base64-encoded .env (the HEADLINEBOT_ENV notebook secret) into environ.
+
+    Variables already set win, so a value set in the notebook overrides the bundle.
+    Returns the names loaded (never the values, which are secrets).
+    """
+    environ = os.environ if environ is None else environ
+    try:
+        # Copy-paste can wrap or pad the value; base64 itself has no whitespace.
+        text = base64.b64decode("".join(encoded.split()), validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError) as e:
+        raise ValueError(f"HEADLINEBOT_ENV is not a base64-encoded .env file ({e})") from e
+    loaded = []
+    for key, value in parse_env(text).items():
+        if key not in environ:
+            environ[key] = value
+            loaded.append(key)
+    return loaded
+
+
 def run_command(cmd):
     print(f"Executing: {cmd}", flush=True)
     return os.system(cmd)
 
-def git_auth_env():
-    """Env that sends GITHUB_TOKEN as an HTTP header for this git call only.
-
-    A token inside the clone URL is printed by run_command, stored in
-    .git/config and visible in `ps`; an env-provided http.extraHeader is none of those.
-    """
-    token = os.environ.get('GITHUB_TOKEN')
-    if not token:
-        return None
-    import base64
-    cred = base64.b64encode(f"x-access-token:{token}".encode()).decode()
-    return {**os.environ, "GIT_CONFIG_COUNT": "1",
-            "GIT_CONFIG_KEY_0": "http.extraHeader",
-            "GIT_CONFIG_VALUE_0": f"Authorization: Basic {cred}"}
-
 def run_git(*args):
-    """Run git without a shell; the auth header never reaches argv or the log."""
+    """Run git without a shell (the repo is public, so no credentials are involved)."""
     print(f"Executing: git {' '.join(args)}", flush=True)
-    return subprocess.call(["git", *args], env=git_auth_env())
+    return subprocess.call(["git", *args])
 
 def run_command_streaming(cmd):
     """Run command with real-time streaming output (important for Kaggle)."""
@@ -93,11 +124,6 @@ def resolve_version():
     branch = VERSION_BRANCH_MAP[version]
     return version, branch
 
-def load_secrets(platform):
-    """Load secrets into os.environ via Infisical (or platform-native fallback)."""
-    from headlinebot.secrets import load_all_secrets
-    return load_all_secrets(platform=platform)
-
 def verify_secrets(platform):
     """Verify critical secrets are loaded."""
     required = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
@@ -105,14 +131,9 @@ def verify_secrets(platform):
 
     if missing:
         print(f"\n❌ CRITICAL: Missing secrets: {', '.join(missing)}", flush=True)
-        if os.environ.get("INFISICAL_PROJECT_ID"):
-            print("   → Check that secrets exist in Infisical dashboard for your project/env.", flush=True)
-        elif platform == "kaggle":
-            print("   → Go to: Add-ons → Secrets → Attach INFISICAL_CLIENT_ID & INFISICAL_CLIENT_SECRET", flush=True)
-            print("   → Or set INFISICAL_PROJECT_ID env var to use Infisical.", flush=True)
-        elif platform == "colab":
-            print("   → Go to: Secrets tab (🔑) → Add INFISICAL_CLIENT_ID & INFISICAL_CLIENT_SECRET", flush=True)
-            print("   → Or set INFISICAL_PROJECT_ID env var to use Infisical.", flush=True)
+        where = {"kaggle": "Add-ons → Secrets", "colab": "Secrets tab (🔑)"}.get(platform, "the environment")
+        print(f"   → Put them in your .env, then store base64 of it as HEADLINEBOT_ENV in {where}"
+              " (README: Secrets).", flush=True)
         return False
 
     optional = ['GEMINI_API_KEY']
@@ -179,11 +200,14 @@ def main():
     # Set version env vars
     set_version_env(version, branch)
 
-    # 1. Load Secrets (skip if already loaded from notebook cell)
-    if not os.environ.get('SECRETS_LOADED'):
-        load_secrets(platform)
-    else:
-        print("🔑 Secrets already loaded from notebook cell", flush=True)
+    # 1. Load secrets from the HEADLINEBOT_ENV bundle the notebook cell passed in
+    bundle = os.environ.get('HEADLINEBOT_ENV')
+    if bundle:
+        try:
+            loaded = load_env_bundle(bundle)
+        except ValueError as e:
+            sys.exit(f"❌ {e}")
+        print(f"🔑 Loaded {len(loaded)} secrets from HEADLINEBOT_ENV: {', '.join(sorted(loaded))}", flush=True)
 
     # 2. Verify critical secrets
     if not verify_secrets(platform):

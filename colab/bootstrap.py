@@ -1,13 +1,11 @@
 """HeadlineBot Colab bootstrap — runs ON the Colab VM via `colab exec -f`.
 
-CLI lifecycle: code arrives as hb.tar.gz (in-place, no git), secrets as
-.env (uploaded, local-only). Forces platform="local" so secrets come from
-os.environ — never from google.colab userdata (broken in CLI mode) or
-Kaggle secrets.
+CLI lifecycle: code arrives as hb.tar.gz (in-place, no git), secrets as the
+local .env (uploaded; google.colab userdata does not work in CLI sessions).
 
-Uploaded alongside this file by colab-run.sh:
+Uploaded to /content by colab-run.sh:
   hb.tar.gz       repo snapshot (top-level dir: HeadlineBot/)
-  .env            local-only secrets (INFISICAL_* + overrides, never in git)
+  .env            all secrets (never in git)
   bootstrap.conf  DEPS=full|cpu, VERSION=prod|beta
 """
 import os
@@ -28,32 +26,10 @@ def find_file(name):
     raise FileNotFoundError(f"{name} not found (searched: {SEARCH_DIRS})")
 
 
-def parse_kv_file(path):
-    """Minimal KEY=VALUE parser (no dotenv dependency). Never prints values."""
-    data = {}
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            if line.startswith("export "):
-                line = line[len("export "):]
-            key, _, val = line.partition("=")
-            key = key.strip()
-            val = val.strip().strip("'").strip('"')
-            if key:
-                data[key] = val
-    return data
-
-
 def main():
     tarball = find_file("hb.tar.gz")
     env_file = find_file(".env")
     conf_file = find_file("bootstrap.conf")
-
-    conf = parse_kv_file(conf_file)
-    deps = conf.get("DEPS", "full")
-    version = conf.get("VERSION", "prod")
 
     # 1. Fresh extract (no git state, no leftovers).
     import shutil
@@ -69,27 +45,28 @@ def main():
         raise SystemExit("extracted tree has no HeadlineBot/ dir")
     print(f"extracted to {app_dir}", flush=True)
 
-    # 2. Load .env into environment (values stay in memory only).
-    for key, val in parse_kv_file(env_file).items():
-        os.environ.setdefault(key, val)
+    # 2. Load .env into the environment with the same parser runner.py uses
+    #    (values stay in memory only, never printed).
+    sys.path.insert(0, app_dir)
+    from runner import parse_env
+    with open(conf_file, encoding="utf-8") as f:
+        conf = parse_env(f.read())
+    deps = conf.get("DEPS", "full")
+    version = conf.get("VERSION", "prod")
+    with open(env_file, encoding="utf-8") as f:
+        for key, val in parse_env(f.read()).items():
+            os.environ.setdefault(key, val)
     os.environ["HEADLINEBOT_VERSION"] = version
 
-    # 3. Pull real secrets from Infisical (platform forced to local:
-    #    userdata.get() does not work in CLI-driven sessions).
-    sys.path.insert(0, app_dir)
-    from headlinebot.secrets import load_infisical_secrets
-    load_infisical_secrets(platform="local")
-
-    # 4. Verify critical secrets (names only, never values).
+    # 3. Verify critical secrets (names only, never values).
     missing = [k for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
                if not os.environ.get(k)]
     if missing:
-        raise SystemExit(f"missing secrets: {missing} "
-                         "(check Infisical project/env)")
+        raise SystemExit(f"missing secrets: {missing} (add them to your .env)")
     if not os.environ.get("GEMINI_API_KEY"):
         print("GEMINI_API_KEY not set - CPU transcription and LLM_PROVIDER=gemini unavailable", flush=True)
 
-    # 5. Dependencies.
+    # 4. Dependencies.
     req = "requirements_cpu.txt" if deps == "cpu" else "requirements.txt"
     print(f"installing {req}...", flush=True)
     rc = subprocess.run(
@@ -98,7 +75,7 @@ def main():
     if rc != 0:
         raise SystemExit("pip install failed")
 
-    # 6. Launch bot detached; exec returns while bot keeps polling.
+    # 5. Launch bot detached; exec returns while bot keeps polling.
     log = open(LOG_FILE, "a", buffering=1)
     proc = subprocess.Popen(
         [sys.executable, "start.py"],

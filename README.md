@@ -318,7 +318,7 @@ Tanpa `OPENAI_COMPAT_API_KEY`, fitur AI mati (admin diberi tahu); transkripsi te
 
 ### Lint & Test
 
-CI (GitHub Actions, Python 3.12) menjalankan hal yang sama di setiap push/PR ke `main` dan `beta`:
+CI (GitHub Actions, Python 3.13 seperti VM Colab) menjalankan hal yang sama di setiap push/PR ke `main` dan `beta`:
 
 ```bash
 pip install -r requirements-dev.txt
@@ -326,6 +326,8 @@ ruff check .
 python -m compileall -q .
 pytest -q
 ```
+
+Job kedua (`colab-cli`) mengecek skrip Colab di Linux tanpa login Google: `shellcheck colab/colab-run.sh`, apakah colab CLI asli masih punya perintah/flag yang dipakai skrip dan launcher, lalu menjalankan `colab-run.sh` terhadap `colab` palsu (upload harus ke `/content/...`, `.env` tidak ikut tarball) dan `bootstrap.py`.
 
 ### Alur Branch
 

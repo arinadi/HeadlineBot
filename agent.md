@@ -73,5 +73,5 @@ Internal variables set by the launch scripts (not for users): `HEADLINEBOT_VERSI
 
 ## Development Rules
 -   **Language**: English for code comments and this file; the README is in Indonesian.
--   **Verification**: `ruff check .`, `python -m compileall -q .` and `pytest -q` must pass (CI runs them on Python 3.12).
+-   **Verification**: `ruff check .`, `python -m compileall -q .` and `pytest -q` must pass (CI runs them on Python 3.13, the Colab VM version). The `colab-cli` CI job also runs shellcheck and `tests/test_colab_scripts.py` against the real colab CLI on Linux; those tests skip on Windows, where the CLI doesn't run.
 -   **Branches**: work lands on `beta`, is tested on Colab with version `beta`, then `main` is fast-forwarded.

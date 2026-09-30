@@ -58,9 +58,11 @@ cmd_up() {
     colab new -s "${SESSION}" ${GPU} || echo "[up] session may already exist, continuing..."
 
     echo "[up] uploading code + .env + conf..."
-    colab upload -s "${SESSION}" "${tarball}" hb.tar.gz
-    colab upload -s "${SESSION}" "${REPO_DIR}/.env" .env
-    colab upload -s "${SESSION}" "${SCRIPT_DIR}/bootstrap.conf" bootstrap.conf
+    # Absolute paths: a relative remote path lands in the VM's filesystem root
+    # (/), while bootstrap.py and `colab ls` look in /content.
+    colab upload -s "${SESSION}" "${tarball}" /content/hb.tar.gz
+    colab upload -s "${SESSION}" "${REPO_DIR}/.env" /content/.env
+    colab upload -s "${SESSION}" "${SCRIPT_DIR}/bootstrap.conf" /content/bootstrap.conf
 
     echo "[up] bootstrapping on VM (pip install can take minutes)..."
     colab exec -s "${SESSION}" --timeout 1800 -f "${SCRIPT_DIR}/bootstrap.py"
@@ -70,7 +72,11 @@ cmd_up() {
 }
 
 cmd_logs() {
-    colab exec -s "${SESSION}" --timeout 60 - <<EOF
+    # `colab exec` reads code only from -f FILE (it has no stdin "-" argument).
+    local script
+    script="$(mktemp --suffix=.py)"
+    trap 'rm -f "${script}"' RETURN
+    cat > "${script}" <<EOF
 import os
 found = None
 for d in (os.getcwd(), "/content"):
@@ -83,6 +89,7 @@ if found is None:
 else:
     print("".join(open(found).readlines()[-${LINES}:]))
 EOF
+    colab exec -s "${SESSION}" --timeout 60 -f "${script}"
 }
 
 cmd_stop() {

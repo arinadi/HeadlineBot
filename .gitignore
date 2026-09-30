@@ -1,2 +1,16 @@
-__pycache__
+__pycache__/
 .env
+
+# Tool caches
+.ruff_cache/
+.pytest_cache/
+.claude/
+
+# Runtime folders the bot creates next to main.py
+uploads/
+transcripts/
+edited_images/
+
+# colab/colab-run.sh outputs
+colab/hb.tar.gz
+colab/bootstrap.conf

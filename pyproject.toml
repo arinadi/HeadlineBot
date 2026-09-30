@@ -23,3 +23,8 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["headlinebot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Repo root on sys.path so tests import `headlinebot` without installing it.
+pythonpath = ["."]

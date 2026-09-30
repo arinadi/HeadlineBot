@@ -16,7 +16,9 @@ falls back to os.environ — which the CLI runner fills from a local .env.
 """
 
 import os
+
 import requests
+
 from headlinebot.utils import detect_platform
 
 INFISICAL_API = "https://app.infisical.com/api/v1"

@@ -11,11 +11,9 @@
 import asyncio
 import gc
 import os
-
 import sys
 import time
 import uuid
-
 
 from headlinebot import config
 from headlinebot.bot_classes import FilesHandler, IdleMonitor, Job, JobManager

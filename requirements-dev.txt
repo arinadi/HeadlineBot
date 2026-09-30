@@ -1,0 +1,4 @@
+# Dev/CI only: lint + tests on top of the CPU runtime deps.
+-r requirements_cpu.txt
+pytest
+ruff

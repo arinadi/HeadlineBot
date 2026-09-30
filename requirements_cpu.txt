@@ -1,5 +1,11 @@
-# requirements_cpu.txt (Ultra Light)
+# requirements_cpu.txt — everything main.py imports at startup (GEMINI/CPU mode).
+# Whisper-only packages (faster-whisper, torch) live in requirements.txt.
 ffmpeg-python
-python-telegram-bot
+google-genai
 nest_asyncio
+numpy
+opencv-python-headless
+Pillow
+python-telegram-bot
+requests
 werkzeug

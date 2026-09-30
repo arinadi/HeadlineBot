@@ -46,8 +46,6 @@ try:
 except ImportError as e:
     sys.exit(f"❌ Critical Dependency Missing: {e}\nPlease run: pip install -r requirements_cpu.txt")
 
-GRADIO_AVAILABLE = False
-gradio_handler = None
 model = None
 gemini_client = None
 genai = None # Loaded in background
@@ -114,20 +112,6 @@ os.makedirs(IMAGE_OUTPUT_FOLDER, exist_ok=True)
 # ------------------------------------------------------------------------------
 
 nest_asyncio.apply()
-
-# --- Compatibility Patch for nest_asyncio and Uvicorn ---
-# Some versions of uvicorn (used by Gradio) call asyncio.run(..., loop_factory=...)
-# nest_asyncio patches asyncio.run but doesn't always support loop_factory.
-_orig_run = asyncio.run
-def _patched_run(main, *, debug=None, loop_factory=None):
-    try:
-        if loop_factory is not None:
-            return _orig_run(main, debug=debug)
-        return _orig_run(main, debug=debug)
-    except TypeError:
-        # Fallback for versions that don't support debug either
-        return _orig_run(main)
-asyncio.run = _patched_run
 
 # --- Filesystem Setup ---
 UPLOAD_FOLDER = 'uploads'
@@ -214,7 +198,7 @@ async def perform_shutdown(reason: str):
 
 async def initialize_models_background():
     """Loads Whisper (if in WHISPER mode) and initializes Gemini client."""
-    global model, gemini_client, GRADIO_AVAILABLE, MODE, device, gradio_handler
+    global model, gemini_client, MODE, device
     try:
         if SHUTDOWN_IN_PROGRESS: return
 
@@ -232,12 +216,6 @@ async def initialize_models_background():
                 if not torch.cuda.is_available():
                     device = "cpu"
                     log("INIT", "GPU detected by system but not accessible by Torch. Using CPU.")
-
-                try:
-                    import gradio_handler
-                    GRADIO_AVAILABLE = True
-                except ImportError:
-                    pass
             except ImportError:
                 if SHUTDOWN_IN_PROGRESS: return
                 log("INIT", "Heavy ML dependencies missing. Installing in background...")
@@ -275,11 +253,6 @@ async def initialize_models_background():
                     # Final hardware check after install
                     if not torch.cuda.is_available():
                         device = "cpu"
-                    try:
-                        import gradio_handler
-                        GRADIO_AVAILABLE = True
-                    except ImportError:
-                        pass
 
         if SHUTDOWN_IN_PROGRESS: return
 
@@ -379,10 +352,6 @@ async def initialize_models_background():
 
         models_ready_event.set()
 
-        # Start Gradio web interface if available now
-        if GRADIO_AVAILABLE:
-            application.create_task(initialize_gradio_background())
-
         # Update startup message
         await update_startup_message()
         await send_telegram_notification(application, "🛎️ *Kitchen is now open!* All AI systems are ready to process your orders.")
@@ -413,43 +382,7 @@ async def initialize_models_background():
         await perform_shutdown("AI Model Loading Failed")
 
 
-async def initialize_gradio_background():
-    """Launches Gradio web server in background and notifies Telegram with pinned URL."""
-    global gradio_handler
-    if not GRADIO_AVAILABLE or not gradio_handler:
-        log("GRADIO", "Not available, skipping")
-        return
-
-    try:
-        log("GRADIO", "Starting web interface...")
-        main_loop = asyncio.get_running_loop()
-        gradio_handler.set_dependencies(job_manager, UPLOAD_FOLDER, main_loop)
-        public_url = await gradio_handler.launch_gradio_async(share=True)
-
-        if public_url:
-            log("GRADIO", f"Online: {public_url}")
-            # Update startup message with URL
-            await update_startup_message(public_url)
-
-            # Pin the startup message
-            if STARTUP_MESSAGE_ID:
-                try:
-                    await application.bot.unpin_all_chat_messages(chat_id=TELEGRAM_CHAT_ID)
-                    await application.bot.pin_chat_message(
-                        chat_id=TELEGRAM_CHAT_ID,
-                        message_id=STARTUP_MESSAGE_ID,
-                        disable_notification=True
-                    )
-                except Exception:
-                    pass
-        else:
-            log("GRADIO", "Started but no public URL")
-    except Exception as e:
-        log("ERROR", f"Gradio failed: {str(e)}")
-        # Gradio failure is not fatal to the bot
-        await send_telegram_notification(application, f"⚠️ *Web UI Warning:* Failed to start Gradio:\n`{md_code(str(e))}`")
-
-async def update_startup_message(gradio_url: str = None):
+async def update_startup_message():
     """Updates the persistent startup message with current status."""
     if not STARTUP_MESSAGE_ID:
         return
@@ -457,20 +390,12 @@ async def update_startup_message(gradio_url: str = None):
     ai_status = "✅ Kitchen Open" if models_ready_event.is_set() else "⏳ Preparing..."
     hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
 
-    # If gradio_url is not passed, try to fetch it if it exists
-    if not gradio_url and GRADIO_AVAILABLE and gradio_handler.gradio_app:
-        if hasattr(gradio_handler.gradio_app, 'share_url'):
-            gradio_url = gradio_handler.gradio_app.share_url
-
-    gradio_text = f"🌐 *Web UI:* {gradio_url}\n" if gradio_url else ""
-
     msg_text = (
         f"📰 *Welcome to HeadlineBot*\n"
         f"Your AI assistant for front-line reporting. Send your files anytime.\n\n"
         f"🛠️ *Equipment:* `{hardware_label}`\n"
         f"🤖 *AI Engine:* `{'Gemini Cloud' if MODE == 'GEMINI' else WHISPER_MODEL}`\n"
         f"📢 *Status:* {ai_status}\n"
-        f"{gradio_text}"
         f"📂 *Order Limit:* `{BOT_FILESIZE_LIMIT}MB` per file"
     )
 
@@ -832,10 +757,6 @@ def main():
         # Background Tasks - start AFTER bot is ready to receive
         application.create_task(queue_processor())
         application.create_task(initialize_models_background())
-
-        # Start Gradio web interface (async, like AI models)
-        if GRADIO_AVAILABLE:
-            application.create_task(initialize_gradio_background())
 
         if ENABLE_IDLE_MONITOR:
             idle_monitor.start()

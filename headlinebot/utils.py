@@ -33,7 +33,7 @@ def log(category: str, message: str):
     """
     Print log with format: [HH:MM:SS] [+Runtime] [CATEGORY] message
 
-    Categories: INIT, JOB, IDLE, WORKER, GEMINI, WHISPER, FILE, GRADIO, ERROR
+    Categories: INIT, JOB, IDLE, WORKER, GEMINI, WHISPER, FILE, ERROR
     """
     timestamp = time.strftime("%H:%M:%S")
     runtime = get_runtime()

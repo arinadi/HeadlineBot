@@ -152,7 +152,6 @@ async def discover_models(gemini_client) -> dict:
       - 'transcript': chain for transcription (flash models)
       - 'summary': chain for summarization (gemma models)
       - 'retouch': chain for retouch (gemma models)
-      - 'photo': chain for photo editing (gemma models)
       - 'all': all available model names
     """
     log("MODEL", "Discovering available models...")
@@ -178,13 +177,12 @@ async def discover_models(gemini_client) -> dict:
             "transcript": transcript_chain,
             "summary": gemma_chain,      # Prefer gemma, fallback flash
             "retouch": gemma_chain,      # Same as summary
-            "photo": gemma_chain,        # Same as summary
             "all": all_models,
         }
 
         # Log results
         log("MODEL", f"Transcript primary: {transcript_chain['primary']}")
-        log("MODEL", f"Summary/Retouch/Photo primary: {gemma_chain['primary']}")
+        log("MODEL", f"Summary/Retouch primary: {gemma_chain['primary']}")
         if transcript_chain['fallbacks']:
             log("MODEL", f"Transcript fallbacks ({len(transcript_chain['fallbacks'])}): {', '.join(transcript_chain['fallbacks'][:5])}{'...' if len(transcript_chain['fallbacks']) > 5 else ''}")
         if gemma_chain['fallbacks']:
@@ -199,7 +197,6 @@ async def discover_models(gemini_client) -> dict:
             "transcript": {"primary": None, "fallbacks": [], "all": []},
             "summary": {"primary": None, "fallbacks": [], "all": []},
             "retouch": {"primary": None, "fallbacks": [], "all": []},
-            "photo": {"primary": None, "fallbacks": [], "all": []},
             "all": [],
         }
 

@@ -18,13 +18,14 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from headlinebot.config import Config
 from headlinebot.utils import log
 
 # ─────────────────────────────────────────────────
 # ⚙️  CONFIGURATION
 # ─────────────────────────────────────────────────
-GEMMA_MODEL = os.getenv('GEMMA_MODEL', 'models/gemma-4-26b-a4b-it')
-JPEG_QUALITY = int(os.getenv('JPEG_QUALITY', 95))
+GEMMA_MODEL = Config.GEMMA_MODEL
+JPEG_QUALITY = Config.JPEG_QUALITY
 
 # ─────────────────────────────────────────────────
 # 📦  LOAD PRESETS
@@ -253,14 +254,8 @@ def analyze_image(image_path: str, gemini_client) -> dict[str, Any]:
         result = {_KEY_MAP.get(k, k): v for k, v in raw.items()}
 
         # Validate: fill missing keys with neutral values
-        NEUTRAL = {
-            "brightness": 0, "contrast": 1.0, "saturation": 1.0,
-            "vibrance": 1.0, "highlights": 0, "shadows": 0,
-            "blacks": 0,     "whites": 0,     "warmth": 0,
-            "tint": 0,       "sharpness": 1.0,"clarity": 0,
-        }
-        for k, neutral_val in NEUTRAL.items():
-            if k not in result:
+        for k, neutral_val in DEFAULT_PARAMS.items():
+            if k != "description" and k not in result:
                 result[k] = neutral_val
 
         # Apply parameter locks
@@ -354,7 +349,7 @@ def gray_world_wb(img: np.ndarray, strength: float = 0.5) -> np.ndarray:
 # ─────────────────────────────────────────────────
 # 🖼️  QUALITY GUARD — WARN-03 fix (comprehensive)
 # ─────────────────────────────────────────────────
-def quality_guard(original: np.ndarray, result: np.ndarray) -> bool:
+def quality_guard(result: np.ndarray) -> bool:
     """Return True if edit is truly broken.
     Very lenient — let presets do their job. Only catch catastrophic failures.
     """
@@ -383,7 +378,6 @@ def apply_corrections(input_path: str, params: dict[str, Any], output_path: str)
     if img_bgr is None:
         raise OSError(f"Cannot read: {input_path}")
 
-    original_bgr = img_bgr.copy()
     img = img_bgr.astype(np.float32)
 
     # ── BUG-01 fix: Skip Gray World if LLM detected specific cast ──────
@@ -466,7 +460,7 @@ def apply_corrections(input_path: str, params: dict[str, Any], output_path: str)
     result = img.astype(np.uint8)
 
     # ── WARN-03 fix: Comprehensive quality guard ───────────────
-    if quality_guard(original_bgr, result):
+    if quality_guard(result):
         log("IMAGE", "Quality guard triggered, using original")
         shutil.copy(input_path, output_path)
         return output_path

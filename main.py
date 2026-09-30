@@ -1,19 +1,22 @@
 # 🚀 Run Transcription Bot (Telegram Version - Modular)
 # ------------------------------------------------------------------------------
-# SECTION 1: CONFIGURATION AND SECRETS
-# ------------------------------------------------------------------------------
-
-# 🚀 Run Transcription Bot (Telegram Version - Modular)
-# ------------------------------------------------------------------------------
 # SECTION 1: IMPORT & CONFIGURATION
 # ------------------------------------------------------------------------------
 
 import asyncio
-import gc
 import os
 import sys
 import time
 import uuid
+
+import nest_asyncio
+import telegram
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ParseMode
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.helpers import escape_markdown
+from telegram.request import HTTPXRequest
+from werkzeug.utils import secure_filename
 
 from headlinebot import config
 from headlinebot.bot_classes import FilesHandler, IdleMonitor, Job, JobManager
@@ -22,33 +25,18 @@ from headlinebot.image_editor import edit_image
 from headlinebot.model_manager import discover_models
 from headlinebot.utils import (
     format_duration,
+    format_transcription_native,
     get_runtime,
     log,
     md_code,
     retouch_transcript,
     set_model_chains,
     summarize_text,
+    transcribe_with_gemini,
 )
 
 # --- Transcription Mode ---
 MODE = os.getenv('TRANSCRIPTION_MODE', 'GEMINI')
-
-# --- External Libraries (Core) ---
-try:
-    import nest_asyncio
-    import telegram
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-    from telegram.constants import ParseMode
-    from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
-    from telegram.helpers import escape_markdown
-    from telegram.request import HTTPXRequest
-    from werkzeug.utils import secure_filename
-except ImportError as e:
-    sys.exit(f"❌ Critical Dependency Missing: {e}\nPlease run: pip install -r requirements_cpu.txt")
-
-model = None
-gemini_client = None
-genai = None # Loaded in background
 
 # --- Secrets & Config Alias ---
 TELEGRAM_BOT_TOKEN = config.TELEGRAM_BOT_TOKEN
@@ -70,9 +58,7 @@ VAD_MIN_SILENCE_DURATION_MS = Config.VAD_MIN_SILENCE_DURATION_MS
 VAD_SPEECH_PAD_MS = Config.VAD_SPEECH_PAD_MS
 BOT_FILESIZE_LIMIT = Config.BOT_FILESIZE_LIMIT
 ENABLE_IDLE_MONITOR = Config.ENABLE_IDLE_MONITOR
-IDLE_FIRST_ALERT_MINUTES = Config.IDLE_FIRST_ALERT_MINUTES
-IDLE_FINAL_WARNING_MINUTES = Config.IDLE_FINAL_WARNING_MINUTES
-IDLE_SHUTDOWN_MINUTES = Config.IDLE_SHUTDOWN_MINUTES
+ENABLE_GEMINI_FEATURES = Config.ENABLE_GEMINI_FEATURES
 
 # Detect Runtime Environment (Kaggle > Colab > Local)
 IS_COLAB = False
@@ -135,7 +121,6 @@ gemini_client = None
 models_ready_event = asyncio.Event()
 
 
-
 # ------------------------------------------------------------------------------
 # SECTION 5: GLOBAL OBJECTS & WORKER
 # ------------------------------------------------------------------------------
@@ -196,9 +181,20 @@ async def perform_shutdown(reason: str):
     except Exception as e:
         log("ERROR", f"Runtime shutdown failed: {e}")
 
+async def init_gemini():
+    """Create the Gemini client and discover model chains (no-op without an API key)."""
+    global gemini_client
+    if not GEMINI_API_KEY:
+        return
+    from google import genai  # lazy: pulls in a large SDK
+    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    set_model_chains(await discover_models(gemini_client))
+    log("INIT", "Gemini ready")
+
+
 async def initialize_models_background():
     """Loads Whisper (if in WHISPER mode) and initializes Gemini client."""
-    global model, gemini_client, MODE, device
+    global model, MODE, device
     try:
         if SHUTDOWN_IN_PROGRESS: return
 
@@ -337,16 +333,7 @@ async def initialize_models_background():
 
         if SHUTDOWN_IN_PROGRESS: return
 
-        if GEMINI_API_KEY:
-            log("INIT", "Initializing Gemini...")
-            # Lazy load google-genai
-            from google import genai
-            gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-            log("INIT", "Gemini ready")
-
-            # Discover available models
-            model_chains = await discover_models(gemini_client)
-            set_model_chains(model_chains)
+        await init_gemini()
 
         if SHUTDOWN_IN_PROGRESS: return
 
@@ -366,12 +353,7 @@ async def initialize_models_background():
             os.environ['TRANSCRIPTION_MODE'] = 'GEMINI'
             device = "cpu"
             try:
-                if GEMINI_API_KEY:
-                    from google import genai
-                    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-                    model_chains = await discover_models(gemini_client)
-                    set_model_chains(model_chains)
-                    log("INIT", "Gemini ready (fallback)")
+                await init_gemini()
                 models_ready_event.set()
                 await update_startup_message()
                 await send_telegram_notification(application, "🛎️ *Kitchen is now open!* Running on Gemini Cloud.")
@@ -382,15 +364,11 @@ async def initialize_models_background():
         await perform_shutdown("AI Model Loading Failed")
 
 
-async def update_startup_message():
-    """Updates the persistent startup message with current status."""
-    if not STARTUP_MESSAGE_ID:
-        return
-
+def startup_message() -> tuple[str, InlineKeyboardMarkup]:
+    """Text and keyboard of the pinned-style startup message, for its current state."""
     ai_status = "✅ Kitchen Open" if models_ready_event.is_set() else "⏳ Preparing..."
     hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
-
-    msg_text = (
+    text = (
         f"📰 *Welcome to HeadlineBot*\n"
         f"Your AI assistant for front-line reporting. Send your files anytime.\n\n"
         f"🛠️ *Equipment:* `{hardware_label}`\n"
@@ -398,16 +376,22 @@ async def update_startup_message():
         f"📢 *Status:* {ai_status}\n"
         f"📂 *Order Limit:* `{BOT_FILESIZE_LIMIT}MB` per file"
     )
-
     keyboard = [[InlineKeyboardButton("🔌 Close Restaurant", callback_data="shutdown_bot")]]
+    return text, InlineKeyboardMarkup(keyboard)
 
+
+async def update_startup_message():
+    """Updates the persistent startup message with current status."""
+    if not STARTUP_MESSAGE_ID:
+        return
+    text, keyboard = startup_message()
     try:
         await application.bot.edit_message_text(
             chat_id=TELEGRAM_CHAT_ID,
             message_id=STARTUP_MESSAGE_ID,
-            text=msg_text,
+            text=text,
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=keyboard
         )
     except Exception as e:
         log("ERROR", f"Failed to update startup message: {e}")
@@ -415,8 +399,6 @@ async def update_startup_message():
 
 def run_transcription_process(job: Job) -> tuple[str, str]:
     """Runs the blocking Whisper transcription in a separate thread."""
-    # Note: This runs in a thread, so we use print directly (log_utils works here too)
-    from headlinebot.utils import log
     log("WHISPER", f"[{job.job_id}] Transcribing {job.original_filename}...")
 
     transcribe_options = {
@@ -447,9 +429,7 @@ def run_transcription_process(job: Job) -> tuple[str, str]:
     segments = list(segments_generator)
 
     # Use native formatting (Raw segments from Whisper)
-    from headlinebot.utils import format_transcription_native
     formatted_text = format_transcription_native(segments)
-
 
     log("WHISPER", f"[{job.job_id}] Done: {len(segments)} segments, lang={info.language} ({info.language_probability:.0%})")
 
@@ -468,8 +448,7 @@ async def _process_image_job(job: Job, _start_time: float):
     output_path = os.path.join(IMAGE_OUTPUT_FOLDER, f"{uuid.uuid4().hex}_{output_filename}")
 
     # Process
-    ENABLE_GEMINI = os.getenv('ENABLE_GEMINI_FEATURES', 'false').lower() == 'true'
-    if gemini_client and ENABLE_GEMINI:
+    if gemini_client and ENABLE_GEMINI_FEATURES:
         result = await edit_image(job.local_filepath, output_path, gemini_client)
         if result["status"] == "success":
             params = result["params"]
@@ -499,7 +478,6 @@ async def _process_transcript_job(job: Job, start_time: float):
 
     # 1. Transcribe
     if MODE == 'GEMINI':
-        from headlinebot.utils import transcribe_with_gemini
         transcript_text, detected_language = await transcribe_with_gemini(job.local_filepath, gemini_client)
     else:
         transcript_text, detected_language = await asyncio.to_thread(run_transcription_process, job)
@@ -528,37 +506,25 @@ async def _process_transcript_job(job: Job, start_time: float):
         await application.bot.send_document(job.chat_id, document=ts_file, filename=ts_filename, reply_to_message_id=job.message_id)
 
     # 2. AI Summary + Retouch — PARALLEL, send 1-by-1 as each succeeds
-    ENABLE_GEMINI = os.getenv('ENABLE_GEMINI_FEATURES', 'false').lower() == 'true'
-    if gemini_client and ENABLE_GEMINI:
-        do_retouch = MODE == 'WHISPER'
-
-        async def _run_and_send_summary():
-            log("JOB", f"[{job.job_id}] Generating summary...")
-            result = await summarize_text(transcript_text, gemini_client)
-            if result:
-                su_filename = f"{SUMMARY_FILENAME_PREFIX}_({duration_str.replace(' ', '')})_{safe_name}.txt"
-                su_filepath = os.path.join(TRANSCRIPT_FOLDER, su_filename)
-                with open(su_filepath, "w", encoding="utf-8") as f:
-                    f.write(result)
-                with open(su_filepath, 'rb') as su_file:
-                    await application.bot.send_document(job.chat_id, document=su_file, filename=su_filename, reply_to_message_id=job.message_id)
-                log("JOB", f"[{job.job_id}] Summary sent.")
-
-        async def _run_and_send_retouch():
-            if not do_retouch:
+    if gemini_client and ENABLE_GEMINI_FEATURES:
+        async def _generate_and_send(kind: str, prefix: str, generate):
+            log("JOB", f"[{job.job_id}] Generating {kind}...")
+            text = await generate(transcript_text, gemini_client)
+            if not text:
                 return
-            log("JOB", f"[{job.job_id}] Generating retouch...")
-            result = await retouch_transcript(transcript_text, gemini_client)
-            if result:
-                rt_filename = f"{RETOUCH_FILENAME_PREFIX}_({duration_str.replace(' ', '')})_{safe_name}.txt"
-                rt_filepath = os.path.join(TRANSCRIPT_FOLDER, rt_filename)
-                with open(rt_filepath, "w", encoding="utf-8") as f:
-                    f.write(result)
-                with open(rt_filepath, 'rb') as rt_file:
-                    await application.bot.send_document(job.chat_id, document=rt_file, filename=rt_filename, reply_to_message_id=job.message_id)
-                log("JOB", f"[{job.job_id}] Retouch sent.")
+            filename = f"{prefix}_({duration_str.replace(' ', '')})_{safe_name}.txt"
+            filepath = os.path.join(TRANSCRIPT_FOLDER, filename)
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(text)
+            with open(filepath, 'rb') as doc:
+                await application.bot.send_document(job.chat_id, document=doc, filename=filename, reply_to_message_id=job.message_id)
+            log("JOB", f"[{job.job_id}] {kind.capitalize()} sent.")
 
-        results = await asyncio.gather(_run_and_send_summary(), _run_and_send_retouch(), return_exceptions=True)
+        tasks = [_generate_and_send("summary", SUMMARY_FILENAME_PREFIX, summarize_text)]
+        # Retouch only for Whisper output; Gemini transcripts are already formatted by the prompt.
+        if MODE == 'WHISPER':
+            tasks.append(_generate_and_send("retouch", RETOUCH_FILENAME_PREFIX, retouch_transcript))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
         for r in results:
             if isinstance(r, Exception):
                 log("ERROR", f"AI task failed: {r}")
@@ -574,7 +540,6 @@ async def queue_processor():
     while not SHUTDOWN_IN_PROGRESS:
         # Heartbeat every 60s — keeps Kaggle alive (prevents idle kill)
         if time.time() - last_heartbeat >= 60:
-            elapsed = get_runtime()
             qsize = job_manager.job_queue.qsize()
             processing = job_manager.currently_processing
             status = f"processing {processing.original_filename}" if processing else "idle"
@@ -617,10 +582,6 @@ async def queue_processor():
                     os.remove(job.local_filepath)
                 except Exception:
                     pass
-
-            if 'transcript_text' in locals():
-                del transcript_text  # noqa: F821
-                gc.collect()
 
             job_manager.job_queue.task_done()
             job_manager.complete_job(job.job_id)
@@ -761,23 +722,12 @@ def main():
         if ENABLE_IDLE_MONITOR:
             idle_monitor.start()
 
-        # Send startup notification in background (non-blocking)
-        hardware_label = "NVIDIA GPU" if device == "cuda" else "Standard CPU"
-        startup_text = (
-            f"📰 *Welcome to HeadlineBot*\n"
-            f"Your AI assistant for front-line reporting. Send your files anytime.\n\n"
-            f"🛠️ *Equipment:* `{hardware_label}`\n"
-            f"🤖 *AI Engine:* `{'Gemini Cloud' if MODE == 'GEMINI' else WHISPER_MODEL}`\n"
-            f"📢 *Status:* ⏳ Preparing...\n\n"
-            f"📂 *Order Limit:* `{BOT_FILESIZE_LIMIT}MB` per file"
-        )
-        keyboard = [[InlineKeyboardButton("🔌 Close Restaurant", callback_data="shutdown_bot")]]
-
+        text, keyboard = startup_message()
         msg = await application.bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
-            text=startup_text,
+            text=text,
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=keyboard
         )
         global STARTUP_MESSAGE_ID
         STARTUP_MESSAGE_ID = msg.message_id

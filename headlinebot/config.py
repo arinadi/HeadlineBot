@@ -74,7 +74,7 @@ class Config:
     # Shutdown: Minutes of idleness before killing runtime.
     IDLE_SHUTDOWN_MINUTES = int(os.getenv('IDLE_SHUTDOWN_MINUTES', 10))
 
-    # --- Gemini Features (temporarily disabled) ---
+    # --- Gemini Features (summary, retouch, photo correction; off by default) ---
     ENABLE_GEMINI_FEATURES = os.getenv('ENABLE_GEMINI_FEATURES', 'false').lower() == 'true'
 
     # --- Image Editing Settings ---

@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 
 from headlinebot import config
+from headlinebot.config import Config
 
 # --- Platform Detection ---
 
@@ -51,7 +52,7 @@ def md_code(text: str) -> str:
 
 # Model chains are discovered at startup via model_manager.py
 # Fallback defaults if discovery fails
-GEMMA_MODEL = "models/gemma-4-26b-a4b-it"
+GEMMA_MODEL = Config.GEMMA_MODEL
 GEMINI_PRIMARY = "gemini-3-flash-preview"
 GEMINI_FALLBACK = "gemini-2.5-flash"
 
@@ -71,9 +72,9 @@ def get_model_chain(task: str) -> dict:
         return _model_chains[task]
     # Fallback defaults
     return {
-        "primary": GEMMA_MODEL if task in ("summary", "retouch", "photo") else GEMINI_PRIMARY,
+        "primary": GEMMA_MODEL if task in ("summary", "retouch") else GEMINI_PRIMARY,
         "fallbacks": [GEMINI_PRIMARY, GEMINI_FALLBACK],
-        "all": [GEMMA_MODEL, GEMINI_PRIMARY, GEMINI_FALLBACK] if task in ("summary", "retouch", "photo") else [GEMINI_PRIMARY, GEMINI_FALLBACK],
+        "all": [GEMMA_MODEL, GEMINI_PRIMARY, GEMINI_FALLBACK] if task in ("summary", "retouch") else [GEMINI_PRIMARY, GEMINI_FALLBACK],
     }
 
 def build_journalist_summary_prompt(today_date: str, file_metadata: str | None = None) -> str:

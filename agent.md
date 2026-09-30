@@ -15,6 +15,7 @@ The provider is `LLM_PROVIDER`: `gemini` (default; Gemini/Gemma) or `openai_comp
 ## Architecture
 -   **Secrets**: one `.env` file. The colab CLI uploads it; notebooks pass it base64-encoded in the `HEADLINEBOT_ENV` secret, which `runner.py` decodes.
 -   **Launch chain**: README notebook cell (reads `HEADLINEBOT_ENV`) → `runner.py` (clone/update repo, `pip install -r requirements_cpu.txt`) → `start.py` → `main.py`. The colab CLI path is `colab/colab-run.sh` → `colab/bootstrap.py` → `start.py`.
+-   **VPS launcher**: `launcher.py` (systemd, `deploy/`) long-polls Telegram only while no Colab VM runs; the first message from the bot's chat triggers `colab-run.sh up` and is left unconfirmed so the bot on Colab processes it. It never polls while a VM runs (one getUpdates consumer per bot).
 -   **Mode**: `start.py` runs `nvidia-smi`; GPU found → `TRANSCRIPTION_MODE=WHISPER`, else `GEMINI`. In WHISPER mode `main.py` installs `requirements.txt` in the background and falls back to GEMINI if Whisper can't load.
 -   **Versions**: `HEADLINEBOT_VERSION=prod` runs branch `main`, `beta` runs branch `beta`.
 -   **Async**: `python-telegram-bot` 22 (`Application.run_polling`, which is synchronous and owns the event loop). One worker (`queue_processor`) handles jobs one at a time.
@@ -23,6 +24,7 @@ The provider is `LLM_PROVIDER`: `gemini` (default; Gemini/Gemma) or `openai_comp
 | File | Purpose |
 | :--- | :--- |
 | `runner.py` | Notebook entry point. Must stay self-contained: it runs before the repo exists. |
+| `launcher.py` | VPS: wakes Colab through the colab CLI on demand. Standard library only (1 GB VPS). |
 | `start.py` | GPU detection and launcher for `main.py`. |
 | `main.py` | Telegram handlers, job worker, model loading, shutdown. |
 | `headlinebot/config.py` | Secrets and all settings, read from environment variables. |

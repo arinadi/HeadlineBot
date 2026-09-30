@@ -109,37 +109,47 @@ for line in proc.stdout:
 
 **Selesai.** Buka Telegram, kirim file, dan saksikan.
 
-### Opsi C: colab CLI (tanpa browser)
+### Opsi C: VPS + colab CLI (bangun otomatis)
 
-Web dan CLI punya **lifecycle berbeda**:
-- **Web** (notebook): VM kosong → `runner.py` clone/update repo, secrets dari secret `HEADLINEBOT_ENV`.
-- **CLI**: kode sudah ada di VM (upload tarball, in-place, tanpa git) → secrets dari file `.env` lokal.
+Server kecil (Ubuntu, RAM 1 GB cukup) menjalankan **launcher** yang selalu hidup:
 
-> ⚠️ `google.colab userdata.get()` **tidak berfungsi** dalam sesi CLI
-> (TimeoutException). Karena itu alur CLI meng-upload `.env` langsung.
+- Saat bot mati, launcher mendengarkan chat-mu.
+- Pesan/file pertama → launcher membalas "⏰ Waking up...", `git pull`, lalu menyalakan Colab **T4** lewat colab CLI (~2-3 menit). Pesan itu **tidak hilang**: bot di Colab yang memprosesnya.
+- Setelah idle, bot mematikan VM dan launcher kembali mendengarkan.
 
-**1. Install & auth (sekali saja)**
+Selama VM hidup, launcher diam (Telegram hanya mengizinkan satu pembaca update per bot).
 
-```bash
-uv tool install google-colab-cli   # butuh Linux/macOS + Python 3.12+
-colab sessions  # sekali saja: buka URL yang dicetak, tempel kode otorisasi
-```
-
-**2. Siapkan `.env`** (tidak pernah di-commit — sudah gitignored)
+**1. Install (sekali)**
 
 ```bash
-cp .env.example .env   # lalu isi (lihat bagian Secrets)
+curl -LsSf https://astral.sh/uv/install.sh | sh     # uv menyediakan Python 3.12+ untuk colab CLI
+uv tool install google-colab-cli
+git clone https://github.com/arinadi/HeadlineBot.git ~/HeadlineBot
+cd ~/HeadlineBot && git checkout main              # atau beta
+cp .env.example .env && nano .env                  # isi secrets (lihat bagian Secrets)
+colab sessions                                     # login sekali: buka URL, tempel kode
 ```
 
-**3. Jalankan**
+**2. Jalankan launcher sebagai service**
 
 ```bash
-./colab/colab-run.sh up --gpu T4   # CPU default; T4 untuk Whisper GPU
-./colab/colab-run.sh logs          # ekor bot.log
-./colab/colab-run.sh stop          # bebaskan VM
+sudo cp deploy/headlinebot-launcher@.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now headlinebot-launcher@$USER
+journalctl -u headlinebot-launcher@$USER -f        # lihat log launcher
 ```
 
-`bootstrap.py` di VM: ekstrak tarball → muat `.env` → install deps → jalankan bot detached.
+Service menjalankan `python3 launcher.py --version prod --gpu T4` dari `~/HeadlineBot` (ubah di file service untuk `beta`).
+
+**Perintah manual** (tanpa launcher):
+
+```bash
+./colab/colab-run.sh up --gpu T4 --version beta    # nyalakan VM + bot
+./colab/colab-run.sh logs                          # ekor bot.log di VM
+./colab/colab-run.sh stop                          # lepas VM
+```
+
+> colab CLI hanya jalan di Linux/macOS (tidak di Windows). `google.colab userdata.get()` tidak berfungsi di sesi CLI, karena itu `.env` di-upload langsung ke `/content/.env`. `bootstrap.py` di VM: ekstrak tarball → muat `.env` → install deps → jalankan bot.
 
 ---
 
@@ -222,6 +232,8 @@ HeadlineBot/
 ├── main.py                # Core bot — handlers, queue, worker
 ├── start.py               # GPU/CPU detection, launcher
 ├── runner.py              # Entry point (web: clone/update; CLI: in-place)
+├── launcher.py            # VPS: bangunkan Colab saat ada pesan (Opsi C)
+├── deploy/                # systemd service untuk launcher
 ├── colab/                 # colab-CLI support: colab-run.sh + bootstrap.py
 ├── presets.json           # Preset & parameter lock koreksi warna per kondisi foto
 ├── agent.md               # Konteks untuk AI coding agent

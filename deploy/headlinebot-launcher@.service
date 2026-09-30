@@ -1,0 +1,21 @@
+# HeadlineBot VPS launcher — wakes Colab when the Telegram chat needs the bot.
+# Instance name = Linux user whose home holds the checkout (~/HeadlineBot),
+# the .env and the colab CLI login (~/.config/colab-cli):
+#   sudo cp deploy/headlinebot-launcher@.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now headlinebot-launcher@$USER
+[Unit]
+Description=HeadlineBot launcher for %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=%i
+WorkingDirectory=/home/%i/HeadlineBot
+# `uv tool install google-colab-cli` puts the colab command in ~/.local/bin.
+Environment=PATH=/home/%i/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 -u launcher.py --version prod --gpu T4
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

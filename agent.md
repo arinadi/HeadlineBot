@@ -56,7 +56,7 @@ The provider is `LLM_PROVIDER`: `gemini` (default; Gemini/Gemma) or `openai_comp
 4.  **Quality Guard**: if the result is blown out or flat, the original is sent instead.
 
 ## Configuration
-Secrets come from the environment (loaded from `.env`, see Architecture): `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (required), `OPENAI_COMPAT_API_KEY`, `GEMINI_API_KEY`, `HF_TOKEN`.
+Secrets come from the environment (loaded from `.env`, see Architecture): `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (required), `OPENAI_COMPAT_API_KEY`, `GEMINI_API_KEY`, `HF_TOKEN` (optional; without `OPENAI_COMPAT_API_KEY` the default provider is off, so summary/retouch/photo are disabled and transcription still works).
 
 Everything else is a plain constant in `headlinebot/config.py`; change it there, no environment variable reads it:
 | Constant | Default |

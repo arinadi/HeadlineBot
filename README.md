@@ -140,7 +140,7 @@ Semua secret ada di **satu file `.env`** (di-`.gitignore`, tidak pernah masuk re
 | :--- | :--- |
 | `TELEGRAM_BOT_TOKEN` | Dari @BotFather (**wajib**) |
 | `TELEGRAM_CHAT_ID` | ID chat yang dilayani bot (**wajib**) |
-| `OPENAI_COMPAT_API_KEY` | API key provider AI (default: OpenCode Go) — ringkasan, retouch, koreksi foto |
+| `OPENAI_COMPAT_API_KEY` | API key provider AI (default: OpenCode Go) — ringkasan, retouch, koreksi foto (opsional; kosong = fitur AI mati, transkripsi tetap jalan) |
 | `GEMINI_API_KEY` | Transkripsi mode CPU, cadangan jika Whisper gagal, dan `LLM_PROVIDER = "gemini"` (opsional) |
 | `HF_TOKEN` | Token Hugging Face untuk download model Whisper (opsional) |
 

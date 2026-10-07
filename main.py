@@ -20,6 +20,7 @@ from werkzeug.utils import secure_filename
 
 from headlinebot import config
 from headlinebot.bot_classes import FilesHandler, IdleMonitor, Job, JobManager
+from headlinebot.cuda_libs import preload_cuda12_libs
 from headlinebot.image_editor import edit_image
 from headlinebot.llm import build_llm
 from headlinebot.model_manager import discover_models
@@ -251,6 +252,8 @@ async def initialize_models_background():
 
         if MODE == 'WHISPER':
             import torch
+            # Before faster_whisper: CTranslate2 must find the CUDA 12 libs from requirements.txt
+            preload_cuda12_libs()
             from faster_whisper import WhisperModel
             # Logic for compute_type
             compute_type = "float16" if device == "cuda" else "int8"

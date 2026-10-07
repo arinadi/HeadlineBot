@@ -6,3 +6,8 @@
 faster-whisper<2
 # av 19 removed av.open(metadata_errors=...), which faster-whisper 1.2.1 still passes; drop once faster-whisper supports av 19 (SYSTRAN/faster-whisper#1492)
 av<19
+# CTranslate2 4.x (faster-whisper's engine) is built for CUDA 12 and dlopens libcublas.so.12 / cuDNN 9,
+# but newer torch on Colab ships CUDA 13 libs only. Bring our own CUDA 12 copies;
+# headlinebot/cuda_libs.py preloads them because LD_LIBRARY_PATH can't change after start.
+nvidia-cublas-cu12<13
+nvidia-cudnn-cu12==9.*

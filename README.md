@@ -74,7 +74,7 @@ flowchart LR
 Di `main.py`, bot langsung online dan menerima file, sementara AI dimuat di latar belakang:
 
 1. Pesan sambutan (hardware, engine, provider AI, status) + notifikasi *Wok is heating up* / *Preparing ingredients*.
-2. **Mode WHISPER:** install `requirements.txt` bila belum ada, unduh model Whisper `large-v2`, muat di GPU (float16). Jika gagal, bot pindah ke Gemini (butuh `GEMINI_API_KEY`); jika itu juga gagal, bot mati.
+2. **Mode WHISPER:** install `requirements.txt` bila belum ada (termasuk cuBLAS/cuDNN CUDA 12 sendiri, karena CTranslate2 butuh CUDA 12 sementara torch di Colab bisa sudah CUDA 13), unduh model Whisper `large-v2`, muat di GPU (float16). Jika gagal, bot pindah ke Gemini (butuh `GEMINI_API_KEY`); jika itu juga gagal, bot mati.
 3. Siapkan Gemini (jika ada key) dan provider AI → *Kitchen is now open!* → worker mulai memproses antrian.
 
 ### Perjalanan sebuah file
